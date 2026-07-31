@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>千葉ガイドマップ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%BA%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --primary: #009688;
+    --primary-dark: #00695c;
+    --primary-light: #e0f2f1;
+    --accent: #ff6f00;
+    --accent-light: #fff3e0;
+    --shisho-fill: #4a90d9;
+    --shisho-border: #1e4d7b;
+    --chiku-fill: #7cb96f;
+    --chiku-border: #2e6b26;
+    --bg: #f4f6f7;
+    --card-bg: #ffffff;
+    --border-soft: #e2e6e8;
+    --text: #24343a;
+    --text-mute: #7b8b90;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; font-family: "Hiragino Kaku Gothic ProN","Yu Gothic","Segoe UI","Meiryo",sans-serif; color:var(--text); background:var(--bg); }
+  #topbar {
+    min-height:76px; display:flex; align-items:center; gap:16px; padding:10px 28px;
+    background:linear-gradient(100deg, var(--primary-dark), var(--primary) 65%, #26a69a);
+    color:#fff; box-shadow:0 2px 10px rgba(0,0,0,0.2); position:relative; z-index:1000;
+    flex-wrap:wrap;
+  }
+  #topbar .icon { font-size:38px; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.25)); }
+  #topbar .title { font-size:26px; font-weight:800; letter-spacing:0.5px; }
+  #topbar .tag { font-size:13px; opacity:0.9; background:rgba(255,255,255,0.16); padding:5px 14px; border-radius:20px; margin-left:8px; }
+  #gh-panel { margin-left:auto; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  #gh-panel input[type=text], #gh-panel input[type=password] {
+    width:96px; font-size:11.5px; padding:6px 8px; border-radius:7px; border:1px solid rgba(255,255,255,0.35);
+    background:rgba(255,255,255,0.16); color:#fff;
+  }
+  #gh-panel input::placeholder { color:rgba(255,255,255,0.75); }
+  #gh-panel input[type=text]:focus, #gh-panel input[type=password]:focus { outline:none; background:rgba(255,255,255,0.28); }
+  #gh-panel label.gh-remember { font-size:10.5px; color:#fff; display:flex; align-items:center; gap:3px; white-space:nowrap; opacity:0.9; }
+  #gh-connect-btn {
+    font-size:11.5px; padding:7px 12px; border:none; border-radius:7px; background:rgba(255,255,255,0.28);
+    color:#fff; cursor:pointer; font-weight:700; white-space:nowrap;
+  }
+  #gh-connect-btn:hover { background:rgba(255,255,255,0.42); }
+  .gh-status { font-size:11px; font-weight:700; white-space:nowrap; color:rgba(255,255,255,0.85); }
+  .gh-status.ok { color:#b9f6ca; }
+  .gh-status.error { color:#ffcdd2; }
+  .gh-status.pending { color:#fff59d; }
+  #app { display:flex; height:calc(100vh - 76px); width:100vw; }
+  #panel { width: 360px; min-width:360px; background:var(--bg); border-right:1px solid var(--border-soft); overflow-y:auto; padding:16px; font-size:13px; }
+  #panel::-webkit-scrollbar { width:8px; }
+  #panel::-webkit-scrollbar-thumb { background:#c7d0d2; border-radius:4px; }
+  .hint-card { background:var(--primary-light); border:1px solid #b2dfdb; border-radius:var(--radius); padding:10px 12px; font-size:11.5px; color:#00594f; margin-bottom:14px; line-height:1.6; }
+
+  .selected-card { background:var(--card-bg); border:2px solid var(--accent); border-radius:var(--radius); padding:12px 14px; margin-bottom:16px; box-shadow:0 3px 10px rgba(255,111,0,0.14); transition:box-shadow .2s; }
+  .selected-empty { color:var(--text-mute); font-size:12.5px; text-align:center; padding:10px 4px; }
+  .selected-badge { display:inline-block; font-size:11px; font-weight:700; padding:3px 10px; border-radius:20px; margin-bottom:8px; }
+  .selected-name { font-size:16px; font-weight:700; margin-bottom:2px; }
+  .selected-sub { font-size:11.5px; color:var(--text-mute); margin-bottom:8px; }
+  .selected-controls { display:flex; gap:16px; margin:10px 0; }
+  .selected-controls label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--text-mute); align-items:center; }
+  .selected-controls input[type=color] { width:44px; height:32px; padding:0; border:1px solid #ccc; border-radius:8px; cursor:pointer; }
+  .selected-buttons { display:flex; gap:6px; margin-top:6px; }
+  .selected-buttons button { flex:1; font-size:11.5px; padding:7px 6px; border-radius:8px; border:1px solid var(--border-soft); background:#f7f8f9; cursor:pointer; font-weight:600; transition:background .15s; }
+  .selected-buttons button:hover { background:#eceeef; }
+  #sel-apply { background:var(--accent); color:#fff; border-color:var(--accent); }
+  #sel-apply:hover { background:#e56500; }
+
+  .section { background:var(--card-bg); border:1px solid var(--border-soft); border-radius:var(--radius); padding:14px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+  .section.shisho { border-top:4px solid var(--shisho-border); }
+  .section.chiku { border-top:4px solid var(--chiku-border); }
+  .layer-header { display:flex; align-items:center; justify-content:space-between; }
+  .layer-title-wrap { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .collapse-btn { background:none; border:none; cursor:pointer; font-size:13px; color:var(--text-mute); padding:2px 5px; border-radius:6px; display:flex; align-items:center; justify-content:center; }
+  .collapse-btn:hover { background:#e7ebec; }
+  .collapse-btn .chevron { display:inline-block; transition:transform .2s; }
+  .section.collapsed .collapse-btn .chevron { transform:rotate(-90deg); }
+  .section.collapsed .section-body { display:none; }
+  .layer-title { font-weight:700; font-size:14.5px; display:flex; align-items:center; gap:8px; }
+  .layer-title .dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .layer-title .count { font-size:11px; font-weight:500; color:var(--text-mute); }
+
+  .switch { position:relative; display:inline-block; width:38px; height:22px; flex-shrink:0; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider-switch { position:absolute; cursor:pointer; inset:0; background-color:#ccc; transition:.2s; border-radius:22px; }
+  .slider-switch:before { position:absolute; content:""; height:16px; width:16px; left:3px; bottom:3px; background:#fff; transition:.2s; border-radius:50%; box-shadow:0 1px 2px rgba(0,0,0,0.3); }
+  .switch input:checked + .slider-switch { background-color:var(--primary); }
+  .switch input:checked + .slider-switch:before { transform:translateX(16px); }
+
+  .bulk-controls { margin-top:10px; display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; }
+  .bulk-controls .color-field { display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--text-mute); }
+  .bulk-controls input[type=color] { width:36px; height:28px; padding:0; border:1px solid #ccc; border-radius:6px; cursor:pointer; }
+  .bulk-controls button.apply-btn { font-size:12px; padding:7px 12px; border:none; background:var(--primary); color:#fff; border-radius:8px; cursor:pointer; font-weight:600; height:28px; align-self:flex-end; }
+  .bulk-controls button.apply-btn:hover { background:var(--primary-dark); }
+  .opacity-row { display:flex; align-items:center; gap:8px; width:100%; margin-top:10px; }
+  .opacity-row span:first-child { font-size:11px; color:var(--text-mute); white-space:nowrap; }
+  .opacity-row input[type=range] { flex:1; accent-color:var(--primary); }
+  .opacity-row .opacity-val { font-size:11px; font-weight:700; color:var(--primary-dark); width:34px; text-align:right; }
+
+  .search-box { width:100%; margin-top:12px; padding:7px 10px; border:1px solid var(--border-soft); border-radius:8px; font-size:12px; background:#fbfbfc; }
+  .search-box:focus { outline:2px solid var(--primary-light); border-color:var(--primary); }
+  .list-meta { font-size:10.5px; color:var(--text-mute); margin:8px 0 3px; }
+  .feature-list { max-height:190px; overflow-y:auto; margin-top:2px; border-top:1px solid #f0f1f2; }
+  .feat-row { padding:6px 8px; font-size:12px; cursor:pointer; border-bottom:1px solid #f2f3f4; border-radius:6px; display:flex; justify-content:space-between; gap:6px; }
+  .feat-row:hover { background:#f0f7f6; }
+  .feat-row.selected { background:var(--accent-light); border-left:3px solid var(--accent); font-weight:700; padding-left:6px; }
+  .feat-row .sub { color:#a3aeb2; font-size:10.5px; font-weight:400; white-space:nowrap; }
+
+  #map { flex:1; height:100%; }
+  #loading { position:fixed; inset:0; background:rgba(244,246,247,0.95); display:flex; align-items:center; justify-content:center; font-size:15px; z-index:9999; flex-direction:column; gap:14px;}
+  .spinner { width:40px; height:40px; border:4px solid #d3e6e4; border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .name-popup .leaflet-popup-content-wrapper { border-radius:20px; box-shadow:0 4px 14px rgba(0,0,0,0.2); }
+  .name-popup .leaflet-popup-content { margin:8px 14px; font-weight:700; font-size:12.5px; color:var(--text); }
+  .name-popup .leaflet-popup-tip { box-shadow:0 2px 6px rgba(0,0,0,0.15); }
+
+  .rename-btn { background:none; border:none; cursor:pointer; font-size:12px; color:var(--text-mute); padding:2px 5px; border-radius:5px; }
+  .rename-btn:hover { background:#e7ebec; color:var(--text); }
+  .section.custom { border-top-width:4px; border-top-style:solid; }
+  .add-layer-card { text-align:center; border:1.5px dashed #c6d0d2; background:#fbfdfd; }
+  .add-layer-card .layer-title { justify-content:center; margin-bottom:4px; }
+  .add-layer-card input[type=file] { display:none; }
+  .add-layer-btn { width:100%; font-size:12.5px; padding:9px 10px; border:none; background:var(--primary); color:#fff; border-radius:8px; cursor:pointer; font-weight:700; }
+  .add-layer-btn:hover { background:var(--primary-dark); }
+  .add-layer-status { font-size:11px; color:var(--text-mute); margin-top:8px; line-height:1.5; min-height:14px; }
+  .add-layer-status.ok { color:#1b7a3d; }
+  .add-layer-status.error { color:#c62828; }
+  .add-layer-status.warn { color:#b06a00; }
+  .add-layer-status.pending { color:var(--text-mute); }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="icon">🗾</span>
+  <span class="title">千葉ガイドマップ</span>
+  <span class="tag">レイヤ管理 & カラーカスタマイズ</span>
+  <div id="gh-panel">
+    <input type="text" id="gh-owner" placeholder="オーナー">
+    <input type="text" id="gh-repo" placeholder="リポジトリ">
+    <input type="text" id="gh-branch" placeholder="ブランチ" value="main">
+    <input type="password" id="gh-token" placeholder="トークン">
+    <label class="gh-remember"><input type="checkbox" id="gh-remember">このブラウザに記憶</label>
+    <button type="button" id="gh-connect-btn">GitHubに接続</button>
+    <span class="gh-status" id="gh-status">未接続</span>
+  </div>
+</div>
+<div id="loading"><div class="spinner"></div><div>地図データを読み込み中です…</div></div>
+<div id="app">
+  <div id="panel">
+    <div class="hint-card">💡 地図上、または下のリストからポリゴンを選ぶと選択中のポリゴンが一瞬点滅し、上のカードで個別の色を変更できます。</div>
+
+    <div class="selected-card" id="selected-card">
+      <div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>
+    </div>
+
+    <div class="section shisho" id="section-shisho">
+      <div class="layer-header">
+        <div class="layer-title-wrap collapse-btn" data-target="section-shisho">
+          <span class="chevron">▾</span>
+          <div class="layer-title"><span class="dot" style="background:var(--shisho-fill)"></span>🏢 支所レイヤ <span class="count">（62件）</span></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="vis-shisho" checked><span class="slider-switch"></span></label>
+      </div>
+      <div class="section-body">
+        <div class="bulk-controls">
+          <div class="color-field">塗り<input type="color" id="fill-shisho" value="#4a90d9"></div>
+          <div class="color-field">枠<input type="color" id="border-shisho" value="#1e4d7b"></div>
+          <button type="button" class="apply-btn" id="apply-shisho">レイヤ全体に適用</button>
+        </div>
+        <div class="opacity-row"><span>透明度</span><input type="range" id="opacity-shisho" min="0" max="100" value="55"><span class="opacity-val" id="opacity-shisho-val">55%</span></div>
+        <div class="opacity-row"><span>枠太さ</span><input type="range" id="weight-shisho" min="0.5" max="6" step="0.5" value="1.5"><span class="opacity-val" id="weight-shisho-val">1.5px</span></div>
+        <input type="text" class="search-box" id="search-shisho" placeholder="🔍 支所名・市町村名で検索">
+        <div class="list-meta" id="meta-shisho"></div>
+        <div class="feature-list" id="list-shisho"></div>
+      </div>
+    </div>
+
+    <div class="section chiku" id="section-chiku">
+      <div class="layer-header">
+        <div class="layer-title-wrap collapse-btn" data-target="section-chiku">
+          <span class="chevron">▾</span>
+          <div class="layer-title"><span class="dot" style="background:var(--chiku-fill)"></span>🏘️ 地区レイヤ <span class="count">（6,675件）</span></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="vis-chiku" checked><span class="slider-switch"></span></label>
+      </div>
+      <div class="section-body">
+        <div class="bulk-controls">
+          <div class="color-field">塗り<input type="color" id="fill-chiku" value="#7cb96f"></div>
+          <div class="color-field">枠<input type="color" id="border-chiku" value="#2e6b26"></div>
+          <button type="button" class="apply-btn" id="apply-chiku">レイヤ全体に適用</button>
+        </div>
+        <div class="opacity-row"><span>透明度</span><input type="range" id="opacity-chiku" min="0" max="100" value="45"><span class="opacity-val" id="opacity-chiku-val">45%</span></div>
+        <div class="opacity-row"><span>枠太さ</span><input type="range" id="weight-chiku" min="0.5" max="6" step="0.5" value="1.2"><span class="opacity-val" id="weight-chiku-val">1.2px</span></div>
+        <input type="text" class="search-box" id="search-chiku" placeholder="🔍 地区名で検索">
+        <div class="list-meta" id="meta-chiku"></div>
+        <div class="feature-list" id="list-chiku"></div>
+      </div>
+    </div>
+
+    <div class="section add-layer-card">
+      <div class="layer-title">➕ 圃場レイヤを追加</div>
+      <input type="file" id="add-layer-file" accept=".geojson,.json,application/geo+json,application/json">
+      <button type="button" class="add-layer-btn" id="add-layer-btn">GeoJSONファイルを選択</button>
+      <div class="add-layer-status" id="add-layer-status">GitHubに接続すると、追加したレイヤはチームで共有されます。</div>
+    </div>
+
+    <div id="custom-layers-container"></div>
+  </div>
+  <div id="map"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="data/shisho_p1.js"></script>
+<script src="data/shisho_p2.js"></script>
+<script src="data/chiku_p1.js"></script>
+<script src="data/chiku_p2.js"></script>
+<script src="data/chiku_p3.js"></script>
+<script src="data/chiku_p4.js"></script>
+<script src="data/chiku_p5.js"></script>
+<script src="data/chiku_p6.js"></script>
+<script>
+const DATA_SHISHO = {
+"type": "FeatureCollection",
+"name": "千葉県各支所",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [].concat(SHISHO_P1, SHISHO_P2)
+};
+const DATA_CHIKU = {
+"type": "FeatureCollection",
+"name": "千葉県地区",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::4612" } },
+"features": [].concat(CHIKU_P1, CHIKU_P2, CHIKU_P3, CHIKU_P4, CHIKU_P5, CHIKU_P6)
+};
+
+(function () {
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // Zoom/wheel/tile tuning tried earlier (zoomSnap:0, custom wheel timing,
+  // updateWhenZooming:false, keepBuffer bump) did not fix the stutter, and since it
+  // persisted even with both data layers hidden, the cause was never simply "too much
+  // vector style recompute". Plain Leaflet defaults are used for the map/tiles.
+  //
+  // The 地区 layer (6,675 polygons) uses viewport-based dynamic rendering: only
+  // polygons whose bounding box intersects the current (buffered) view are attached
+  // to the map; none of the coordinates are ever altered. 支所 (62 features) stays a
+  // normal always-on layer since its cost is negligible. Newly added 圃場 (custom)
+  // layers use the same dynamic mechanism, plus a minimum-zoom gate since a large
+  // volume of them is expected.
+  const map = L.map('map', { preferCanvas: true }).setView([35.55, 140.25], 10);
+
+  const sharedRenderer = L.canvas();
+
+  const tileOptions = { maxZoom: 18 };
+
+  const std = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', Object.assign({
+    attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
+  }, tileOptions)).addTo(map);
+
+  const air = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', Object.assign({
+    attribution: '写真: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
+  }, tileOptions));
+
+  L.control.layers({ '白地図（標準地図）': std, '航空写真': air }, {}, { collapsed: false, position: 'topright' }).addTo(map);
+
+  const layers = {
+    shisho: {
+      key: 'shisho', title: '支所レイヤ', data: DATA_SHISHO, nameProp: '支所', subProp: '市町村', popupProp: '市町村',
+      defaultFill: '#4a90d9', defaultBorder: '#1e4d7b', opacity: 0.55, weight: 1.5,
+      dynamic: false, visible: true, minZoom: 0, custom: false,
+      geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {}
+    },
+    chiku: {
+      key: 'chiku', title: '地区レイヤ', data: DATA_CHIKU, nameProp: 'S_NAME', subProp: null, popupProp: null,
+      defaultFill: '#7cb96f', defaultBorder: '#2e6b26', opacity: 0.45, weight: 1.2,
+      dynamic: true, visible: true, minZoom: 0, custom: false,
+      geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {}
+    }
+  };
+
+  function makeCustomLayerState(opts) {
+    return {
+      key: opts.key, title: opts.title, data: opts.data,
+      nameProp: opts.nameProp, subProp: null, popupProp: null,
+      defaultFill: opts.defaultFill, defaultBorder: opts.defaultBorder,
+      opacity: opts.opacity, weight: opts.weight,
+      dynamic: true, visible: true, minZoom: opts.minZoom, custom: true,
+      geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {},
+      id: opts.id, path: opts.path, sha: opts.sha || null
+    };
+  }
+
+  let selection = { key: null, fid: null };
+
+  function styleFor(ls, feature) {
+    const fid = String(feature.properties.fid);
+    const ov = ls.overrides[fid];
+    return {
+      fillColor: ov && ov.fill ? ov.fill : ls.defaultFill,
+      color: ov && ov.border ? ov.border : ls.defaultBorder,
+      weight: ov && ov.weight ? ov.weight : ls.weight,
+      fillOpacity: ls.opacity,
+      opacity: ls.opacity,
+      dashArray: null
+    };
+  }
+
+  function selectedStyleFor(ls, feature) {
+    const base = styleFor(ls, feature);
+    return Object.assign({}, base, { weight: Math.max(base.weight + 3, 5), color: '#ff6f00', dashArray: '6,4', opacity: 1 });
+  }
+
+  // Pure numeric bbox of a Polygon/MultiPolygon geometry -- read-only, never mutates
+  // or simplifies the coordinates.
+  function computeBBox(geometry) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (function walk(coords) {
+      if (typeof coords[0] === 'number') {
+        const x = coords[0], y = coords[1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      } else {
+        for (let i = 0; i < coords.length; i++) walk(coords[i]);
+      }
+    })(geometry.coordinates);
+    return [minX, minY, maxX, maxY];
+  }
+
+  function bindFeatureInteractions(ls, feature, lyr) {
+    const fid = String(feature.properties.fid);
+    lyr.bindPopup(function () {
+      const popProp = ls.popupProp || ls.nameProp;
+      return '<div>' + escapeHtml((popProp && feature.properties[popProp]) || '(名称なし)') + '</div>';
+    }, { className: 'name-popup', closeButton: true });
+    lyr.on('click', function (e) {
+      selectFeature(ls.key, fid);
+      if (L.DomEvent) L.DomEvent.stopPropagation(e);
+    });
+  }
+
+  // Static layer (支所): all features attached once.
+  function initStaticLayer(ls) {
+    ls.geo = L.geoJSON(ls.data, {
+      renderer: sharedRenderer,
+      style: function (feature) { return styleFor(ls, feature); },
+      onEachFeature: function (feature, lyr) {
+        const fid = String(feature.properties.fid);
+        ls.index[fid] = lyr;
+        ls.featureByFid[fid] = feature;
+        bindFeatureInteractions(ls, feature, lyr);
+      }
+    }).addTo(map);
+    ls.data.features.forEach(function (ft) { ft.geometry = null; });
+  }
+
+  // Dynamic layer (地区 / カスタム圃場レイヤ): only build/attach a feature's Leaflet
+  // layer the first time it enters the (buffered) viewport, and only once the map is
+  // zoomed to at least ls.minZoom; detach again once it leaves. Geometry is kept
+  // (not nulled) since it's needed to rebuild the shape on demand.
+  function initDynamicLayer(ls) {
+    ls.data.features.forEach(function (ft) {
+      const fid = String(ft.properties.fid);
+      ls.featureByFid[fid] = ft;
+      ls.bboxByFid[fid] = computeBBox(ft.geometry);
+    });
+    refreshViewport(ls);
+  }
+
+  function makeDynamicLayer(ls, feature) {
+    const lyr = L.geoJSON(feature, {
+      renderer: sharedRenderer,
+      style: function (f) { return styleFor(ls, f); }
+    }).getLayers()[0];
+    bindFeatureInteractions(ls, feature, lyr);
+    return lyr;
+  }
+
+  function refreshViewport(ls) {
+    if (!ls.dynamic || !ls.visible) return;
+    if (ls.minZoom && map.getZoom() < ls.minZoom) {
+      Object.keys(ls.index).forEach(function (fid) {
+        if (!(selection.key === ls.key && selection.fid === fid)) {
+          map.removeLayer(ls.index[fid]);
+          delete ls.index[fid];
+        }
+      });
+      return;
+    }
+    const b = map.getBounds().pad(0.25);
+    const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
+    function inView(fid) {
+      const bbox = ls.bboxByFid[fid];
+      return bbox && bbox[2] >= west && bbox[0] <= east && bbox[3] >= south && bbox[1] <= north;
+    }
+    Object.keys(ls.index).forEach(function (fid) {
+      if (!(selection.key === ls.key && selection.fid === fid) && !inView(fid)) {
+        map.removeLayer(ls.index[fid]);
+        delete ls.index[fid];
+      }
+    });
+    ls.data.features.forEach(function (ft) {
+      const fid = String(ft.properties.fid);
+      if (ls.index[fid]) return;
+      if (inView(fid)) {
+        const lyr = makeDynamicLayer(ls, ft);
+        ls.index[fid] = lyr;
+        lyr.addTo(map);
+      }
+    });
+  }
+
+  function refreshAllViewports() {
+    Object.keys(layers).forEach(function (k) { refreshViewport(layers[k]); });
+  }
+
+  initStaticLayer(layers.shisho);
+  initDynamicLayer(layers.chiku);
+
+  map.on('moveend', refreshAllViewports);
+  map.on('zoomend', refreshAllViewports);
+
+  function getFeatureBounds(ls, fid) {
+    if (ls.dynamic) {
+      const bbox = ls.bboxByFid[fid];
+      if (!bbox) return null;
+      return L.latLngBounds([bbox[1], bbox[0]], [bbox[3], bbox[2]]);
+    }
+    const lyr = ls.index[fid];
+    return lyr && lyr.getBounds ? lyr.getBounds() : null;
+  }
+
+  // Pans/zooms to a feature and selects it once its layer is guaranteed to exist
+  // (immediately for static/already-instantiated features; after the pan settles
+  // and refreshViewport has run, for a dynamic feature currently out of view or
+  // below its minZoom).
+  function goToAndSelect(ls, fid) {
+    if (ls.index[fid]) {
+      const bounds = getFeatureBounds(ls, fid);
+      if (bounds) map.fitBounds(bounds, { maxZoom: 15 });
+      selectFeature(ls.key, fid);
+      return;
+    }
+    const bounds = getFeatureBounds(ls, fid);
+    if (!bounds) return;
+    const targetZoom = ls.minZoom ? Math.max(ls.minZoom, map.getZoom()) : undefined;
+    map.once('moveend', function () { selectFeature(ls.key, fid); });
+    map.fitBounds(bounds, { maxZoom: targetZoom || 15 });
+  }
+
+  function flashFeature(ls, feature, lyr) {
+    const selSty = selectedStyleFor(ls, feature);
+    const flashSty = Object.assign({}, selSty, { fillColor: '#ffeb3b', color: '#ff3d00', fillOpacity: 0.88 });
+    let n = 0;
+    (function tick() {
+      lyr.setStyle(n % 2 === 0 ? flashSty : selSty);
+      n++;
+      if (n < 6) { setTimeout(tick, 130); } else { lyr.setStyle(selSty); }
+    })();
+  }
+
+  function selectFeature(layerKey, fid) {
+    const ls = layers[layerKey];
+    const feature = ls.featureByFid[fid];
+    const lyr = ls.index[fid];
+    if (!feature || !lyr) return;
+    if (selection.key && (selection.key !== layerKey || selection.fid !== fid)) {
+      const prevLs = layers[selection.key];
+      const prevLyr = prevLs ? prevLs.index[selection.fid] : null;
+      const prevFeature = prevLs ? prevLs.featureByFid[selection.fid] : null;
+      if (prevLyr && prevFeature) prevLyr.setStyle(styleFor(prevLs, prevFeature));
+    }
+    selection = { key: layerKey, fid: fid };
+    if (typeof lyr.bringToFront === 'function') lyr.bringToFront();
+    flashFeature(ls, feature, lyr);
+    lyr.openPopup();
+    renderSelectedCard();
+    refreshAllLists();
+  }
+
+  function deselectFeature() {
+    if (!selection.key) return;
+    const ls = layers[selection.key];
+    const lyr = ls.index[selection.fid];
+    const feature = ls.featureByFid[selection.fid];
+    if (lyr && feature) { lyr.setStyle(styleFor(ls, feature)); lyr.closePopup(); }
+    selection = { key: null, fid: null };
+    renderSelectedCard();
+    refreshAllLists();
+    refreshAllViewports();
+  }
+
+  function renderSelectedCard() {
+    const card = document.getElementById('selected-card');
+    if (!selection.key || !layers[selection.key]) {
+      card.innerHTML = '<div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>';
+      return;
+    }
+    const ls = layers[selection.key];
+    const feature = ls.featureByFid[selection.fid];
+    if (!feature) { card.innerHTML = '<div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>'; return; }
+    const ov = ls.overrides[selection.fid];
+    const fill = ov && ov.fill ? ov.fill : ls.defaultFill;
+    const border = ov && ov.border ? ov.border : ls.defaultBorder;
+    const weight = ov && ov.weight ? ov.weight : ls.weight;
+    const name = (ls.nameProp && feature.properties[ls.nameProp]) || '(名称なし)';
+    const sub = ls.subProp ? feature.properties[ls.subProp] : null;
+    const layerLabel = ls.custom ? ('🌾 ' + ls.title) : (ls.key === 'shisho' ? '🏢 支所' : '🏘️ 地区');
+    card.innerHTML =
+      '<div class="selected-badge" style="background:' + ls.defaultFill + '33;color:' + ls.defaultBorder + ';">' + escapeHtml(layerLabel) + '</div>' +
+      '<div class="selected-name">' + escapeHtml(name) + '</div>' +
+      (sub ? '<div class="selected-sub">' + escapeHtml(sub) + '</div>' : '') +
+      '<div class="selected-controls">' +
+        '<label>塗り色<input type="color" id="sel-fill" value="' + fill + '"></label>' +
+        '<label>枠色<input type="color" id="sel-border" value="' + border + '"></label>' +
+      '</div>' +
+      '<div class="opacity-row" style="margin-top:2px;"><span>枠太さ</span><input type="range" id="sel-weight" min="0.5" max="6" step="0.5" value="' + weight + '"><span class="opacity-val" id="sel-weight-val">' + weight + 'px</span></div>' +
+      '<div class="selected-buttons">' +
+        '<button type="button" id="sel-apply">適用</button>' +
+        '<button type="button" id="sel-reset">既定に戻す</button>' +
+        '<button type="button" id="sel-deselect">選択解除</button>' +
+      '</div>';
+
+    const selWeightInput = document.getElementById('sel-weight');
+    const selWeightVal = document.getElementById('sel-weight-val');
+    selWeightInput.addEventListener('input', function (e) {
+      selWeightVal.textContent = e.target.value + 'px';
+    });
+
+    document.getElementById('sel-apply').addEventListener('click', function () {
+      const f = document.getElementById('sel-fill').value;
+      const b = document.getElementById('sel-border').value;
+      const w = Number(document.getElementById('sel-weight').value);
+      ls.overrides[selection.fid] = { fill: f, border: b, weight: w };
+      const lyr = ls.index[selection.fid];
+      if (lyr) lyr.setStyle(selectedStyleFor(ls, feature));
+    });
+    document.getElementById('sel-reset').addEventListener('click', function () {
+      delete ls.overrides[selection.fid];
+      const lyr = ls.index[selection.fid];
+      if (lyr) lyr.setStyle(selectedStyleFor(ls, feature));
+      renderSelectedCard();
+    });
+    document.getElementById('sel-deselect').addEventListener('click', function () {
+      deselectFeature();
+    });
+  }
+
+  function wireLayerControls(ls, prefix) {
+    document.getElementById('vis-' + prefix).addEventListener('change', function (e) {
+      ls.visible = e.target.checked;
+      if (ls.dynamic) {
+        if (ls.visible) {
+          refreshViewport(ls);
+        } else {
+          Object.keys(ls.index).forEach(function (fid) {
+            map.removeLayer(ls.index[fid]);
+            delete ls.index[fid];
+          });
+        }
+      } else if (ls.visible) {
+        map.addLayer(ls.geo);
+      } else {
+        map.removeLayer(ls.geo);
+      }
+    });
+    document.getElementById('apply-' + prefix).addEventListener('click', function () {
+      ls.defaultFill = document.getElementById('fill-' + prefix).value;
+      ls.defaultBorder = document.getElementById('border-' + prefix).value;
+      ls.overrides = {};
+      Object.keys(ls.index).forEach(function (fid) {
+        const l = ls.index[fid];
+        if (selection.key === ls.key && selection.fid === fid) {
+          l.setStyle(selectedStyleFor(ls, l.feature));
+        } else {
+          l.setStyle({ fillColor: ls.defaultFill, color: ls.defaultBorder, weight: ls.weight });
+        }
+      });
+      if (selection.key === ls.key) renderSelectedCard();
+      refreshList(ls, prefix);
+      if (ls.custom && github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+      }
+    });
+    const opacityInput = document.getElementById('opacity-' + prefix);
+    const opacityVal = document.getElementById('opacity-' + prefix + '-val');
+    opacityInput.addEventListener('input', function (e) {
+      const v = Number(e.target.value) / 100;
+      ls.opacity = v;
+      opacityVal.textContent = e.target.value + '%';
+      Object.keys(ls.index).forEach(function (fid) {
+        const l = ls.index[fid];
+        if (selection.key === ls.key && selection.fid === fid) {
+          l.setStyle({ fillOpacity: v });
+        } else {
+          l.setStyle({ fillOpacity: v, opacity: v });
+        }
+      });
+    });
+    opacityInput.addEventListener('change', function () {
+      if (ls.custom && github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+      }
+    });
+    const weightInput = document.getElementById('weight-' + prefix);
+    const weightVal = document.getElementById('weight-' + prefix + '-val');
+    weightInput.addEventListener('input', function (e) {
+      const w = Number(e.target.value);
+      ls.weight = w;
+      weightVal.textContent = w + 'px';
+      Object.keys(ls.index).forEach(function (fid) {
+        const l = ls.index[fid];
+        const ov = ls.overrides[fid];
+        const effective = (ov && ov.weight) ? ov.weight : w;
+        if (selection.key === ls.key && selection.fid === fid) {
+          l.setStyle(selectedStyleFor(ls, l.feature));
+        } else {
+          l.setStyle({ weight: effective });
+        }
+      });
+      if (selection.key === ls.key) renderSelectedCard();
+    });
+    weightInput.addEventListener('change', function () {
+      if (ls.custom && github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+      }
+    });
+  }
+
+  function wireMinZoomControl(ls) {
+    const input = document.getElementById('minzoom-' + ls.key);
+    const val = document.getElementById('minzoom-' + ls.key + '-val');
+    if (!input) return;
+    input.addEventListener('input', function (e) {
+      ls.minZoom = Number(e.target.value);
+      val.textContent = e.target.value;
+      refreshViewport(ls);
+    });
+    input.addEventListener('change', function () {
+      if (github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+      }
+    });
+  }
+
+  function wireRenameButton(ls) {
+    const btn = document.getElementById('rename-' + ls.key);
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      const input = window.prompt('新しいレイヤ名を入力してください', ls.title);
+      if (input == null) return;
+      const trimmed = input.trim();
+      if (!trimmed || trimmed === ls.title) return;
+      ls.title = trimmed;
+      const titleEl = document.getElementById('title-' + ls.key);
+      if (titleEl) titleEl.textContent = ls.title;
+      if (selection.key === ls.key) renderSelectedCard();
+      if (github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { alert('GitHubへのタイトル更新に失敗しました: ' + e.message); });
+      }
+    });
+  }
+
+  wireLayerControls(layers.shisho, 'shisho');
+  wireLayerControls(layers.chiku, 'chiku');
+
+  function wireCollapseButton(section) {
+    const btn = section.querySelector('.collapse-btn');
+    if (btn) {
+      btn.addEventListener('click', function () { section.classList.toggle('collapsed'); });
+    }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.section'), wireCollapseButton);
+
+  function refreshList(ls, prefix) {
+    const searchEl = document.getElementById('search-' + prefix);
+    renderList(ls, 'list-' + prefix, 'meta-' + prefix, searchEl ? searchEl.value : '');
+  }
+
+  function refreshAllLists() {
+    Object.keys(layers).forEach(function (k) { refreshList(layers[k], k); });
+  }
+
+  function renderList(ls, listId, metaId, filter) {
+    const listEl = document.getElementById(listId);
+    const metaEl = document.getElementById(metaId);
+    if (!listEl || !metaEl) return;
+    const f = (filter || '').trim();
+    const all = ls.data.features;
+    const matched = f ? all.filter(function (ft) {
+      const n = (ls.nameProp && ft.properties[ls.nameProp]) || '';
+      const s = ls.subProp ? (ft.properties[ls.subProp] || '') : '';
+      return n.indexOf(f) !== -1 || s.indexOf(f) !== -1;
+    }) : all;
+    const LIMIT = 150;
+    let shown = matched.slice(0, LIMIT);
+    const isThisLayerSelected = selection.key === ls.key;
+    if (isThisLayerSelected) {
+      const already = shown.some(function (ft) { return String(ft.properties.fid) === selection.fid; });
+      if (!already) {
+        const selFt = ls.featureByFid[selection.fid];
+        if (selFt) shown = [selFt].concat(shown);
+      }
+    }
+    metaEl.textContent = matched.length > LIMIT
+      ? ('該当 ' + matched.length + '件中 ' + LIMIT + '件を表示（絞り込んでください）')
+      : ('該当 ' + matched.length + '件');
+    listEl.innerHTML = shown.map(function (ft) {
+      const fid = String(ft.properties.fid);
+      const name = (ls.nameProp && ft.properties[ls.nameProp]) || ('#' + fid);
+      const sub = ls.subProp ? ft.properties[ls.subProp] : null;
+      const isSel = isThisLayerSelected && fid === selection.fid;
+      return '<div class="feat-row' + (isSel ? ' selected' : '') + '" data-fid="' + fid + '">' +
+        '<span class="feat-name">' + escapeHtml(name) + '</span>' +
+        (sub ? '<span class="sub">' + escapeHtml(sub) + '</span>' : '') +
+        '</div>';
+    }).join('');
+    Array.prototype.forEach.call(listEl.querySelectorAll('.feat-row'), function (row) {
+      row.addEventListener('click', function () {
+        goToAndSelect(ls, row.dataset.fid);
+      });
+    });
+    const selRow = listEl.querySelector('.feat-row.selected');
+    if (selRow) { selRow.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  renderList(layers.shisho, 'list-shisho', 'meta-shisho', '');
+  renderList(layers.chiku, 'list-chiku', 'meta-chiku', '');
+
+  document.getElementById('search-shisho').addEventListener('input', function (e) {
+    renderList(layers.shisho, 'list-shisho', 'meta-shisho', e.target.value);
+  });
+  document.getElementById('search-chiku').addEventListener('input', function (e) {
+    renderList(layers.chiku, 'list-chiku', 'meta-chiku', e.target.value);
+  });
+
+  // ---------------------------------------------------------------------
+  // GitHub連携: リポジトリの layers/manifest.json + layers/<id>.geojson を
+  // 読み書きし、追加した圃場レイヤをチームで共有する。
+  // ---------------------------------------------------------------------
+  const github = { owner: '', repo: '', branch: 'main', token: '', connected: false };
+
+  function b64EncodeUtf8(str) { return btoa(unescape(encodeURIComponent(str))); }
+  function b64DecodeUtf8(str) { return decodeURIComponent(escape(atob(str.replace(/\s/g, '')))); }
+
+  async function ghRequest(path, options) {
+    options = options || {};
+    const headers = Object.assign({
+      'Authorization': 'token ' + github.token,
+      'Accept': 'application/vnd.github+json'
+    }, options.body ? { 'Content-Type': 'application/json' } : {}, options.headers || {});
+    const url = 'https://api.github.com/repos/' + encodeURIComponent(github.owner) + '/' + encodeURIComponent(github.repo) + path;
+    const res = await fetch(url, { method: options.method || 'GET', headers: headers, body: options.body });
+    if (!res.ok) {
+      let detail = '';
+      try { const j = await res.json(); detail = j.message || ''; } catch (e) {}
+      const err = new Error('HTTP ' + res.status + (detail ? (': ' + detail) : ''));
+      err.status = res.status;
+      throw err;
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  async function ghGetFile(path) {
+    try {
+      return await ghRequest('/contents/' + path + '?ref=' + encodeURIComponent(github.branch));
+    } catch (e) {
+      if (e.status === 404) return null;
+      throw e;
+    }
+  }
+
+  async function ghPutFile(path, contentObj, message, sha) {
+    const body = { message: message, content: b64EncodeUtf8(JSON.stringify(contentObj, null, 2)), branch: github.branch };
+    if (sha) body.sha = sha;
+    return await ghRequest('/contents/' + path, { method: 'PUT', body: JSON.stringify(body) });
+  }
+
+  async function ghSaveLayer(ls) {
+    const res = await ghPutFile(ls.path, ls.data, (ls.sha ? '圃場レイヤ更新: ' : '圃場レイヤ追加: ') + ls.title, ls.sha);
+    ls.sha = res.content.sha;
+  }
+
+  async function ghGetManifest() {
+    const file = await ghGetFile('layers/manifest.json');
+    if (!file) return { sha: null, manifest: { layers: [] } };
+    return { sha: file.sha, manifest: JSON.parse(b64DecodeUtf8(file.content)) };
+  }
+
+  async function ghUpsertManifestEntry(ls) {
+    const cur = await ghGetManifest();
+    const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
+    filtered.push({
+      id: ls.id, title: ls.title, path: ls.path, nameProp: ls.nameProp,
+      defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
+      opacity: ls.opacity, weight: ls.weight, minZoom: ls.minZoom
+    });
+    const body = {
+      message: 'マニフェスト更新: ' + ls.title,
+      content: b64EncodeUtf8(JSON.stringify({ layers: filtered }, null, 2)),
+      branch: github.branch
+    };
+    if (cur.sha) body.sha = cur.sha;
+    await ghRequest('/contents/layers/manifest.json', { method: 'PUT', body: JSON.stringify(body) });
+  }
+
+  function setGhStatus(msg, kind) {
+    const el = document.getElementById('gh-status');
+    el.textContent = msg;
+    el.className = 'gh-status' + (kind ? (' ' + kind) : '');
+  }
+
+  function setAddStatus(msg, kind) {
+    const el = document.getElementById('add-layer-status');
+    el.textContent = msg;
+    el.className = 'add-layer-status' + (kind ? (' ' + kind) : '');
+  }
+
+  function guessNameProp(features) {
+    if (!features.length) return null;
+    const props = features[0].properties || {};
+    const keys = Object.keys(props).filter(function (k) { return k !== 'fid' && typeof props[k] === 'string'; });
+    return keys.length ? keys[0] : null;
+  }
+
+  function insertCustomLayerPanel(ls) {
+    const container = document.getElementById('custom-layers-container');
+    const wrap = document.createElement('div');
+    wrap.innerHTML =
+      '<div class="section custom" id="section-' + ls.key + '" style="border-top-color:' + ls.defaultBorder + '">' +
+        '<div class="layer-header">' +
+          '<div class="layer-title-wrap collapse-btn" data-target="section-' + ls.key + '">' +
+            '<span class="chevron">▾</span>' +
+            '<div class="layer-title">' +
+              '<span class="dot" style="background:' + ls.defaultFill + '"></span>' +
+              '🌾 <span class="layer-title-text" id="title-' + ls.key + '">' + escapeHtml(ls.title) + '</span>' +
+              '<button type="button" class="rename-btn" id="rename-' + ls.key + '" title="タイトルを変更">✎</button>' +
+              '<span class="count">（' + ls.data.features.length + '件）</span>' +
+            '</div>' +
+          '</div>' +
+          '<label class="switch"><input type="checkbox" id="vis-' + ls.key + '" checked><span class="slider-switch"></span></label>' +
+        '</div>' +
+        '<div class="section-body">' +
+          '<div class="bulk-controls">' +
+            '<div class="color-field">塗り<input type="color" id="fill-' + ls.key + '" value="' + ls.defaultFill + '"></div>' +
+            '<div class="color-field">枠<input type="color" id="border-' + ls.key + '" value="' + ls.defaultBorder + '"></div>' +
+            '<button type="button" class="apply-btn" id="apply-' + ls.key + '">レイヤ全体に適用</button>' +
+          '</div>' +
+          '<div class="opacity-row"><span>透明度</span><input type="range" id="opacity-' + ls.key + '" min="0" max="100" value="' + Math.round(ls.opacity * 100) + '"><span class="opacity-val" id="opacity-' + ls.key + '-val">' + Math.round(ls.opacity * 100) + '%</span></div>' +
+          '<div class="opacity-row"><span>枠太さ</span><input type="range" id="weight-' + ls.key + '" min="0.5" max="6" step="0.5" value="' + ls.weight + '"><span class="opacity-val" id="weight-' + ls.key + '-val">' + ls.weight + 'px</span></div>' +
+          '<div class="opacity-row"><span>表示開始ズーム</span><input type="range" id="minzoom-' + ls.key + '" min="0" max="18" step="1" value="' + ls.minZoom + '"><span class="opacity-val" id="minzoom-' + ls.key + '-val">' + ls.minZoom + '</span></div>' +
+          '<input type="text" class="search-box" id="search-' + ls.key + '" placeholder="🔍 名称で検索">' +
+          '<div class="list-meta" id="meta-' + ls.key + '"></div>' +
+          '<div class="feature-list" id="list-' + ls.key + '"></div>' +
+        '</div>' +
+      '</div>';
+    const section = wrap.firstElementChild;
+    container.appendChild(section);
+
+    wireLayerControls(ls, ls.key);
+    wireMinZoomControl(ls);
+    wireRenameButton(ls);
+    wireCollapseButton(section);
+
+    renderList(ls, 'list-' + ls.key, 'meta-' + ls.key, '');
+    document.getElementById('search-' + ls.key).addEventListener('input', function (e) {
+      renderList(ls, 'list-' + ls.key, 'meta-' + ls.key, e.target.value);
+    });
+  }
+
+  async function createCustomLayer(geojson, defaultTitle) {
+    let features;
+    if (geojson.type === 'FeatureCollection') features = geojson.features || [];
+    else if (geojson.type === 'Feature') features = [geojson];
+    else { setAddStatus('GeoJSONの形式が認識できません（Feature/FeatureCollectionのみ対応）', 'error'); return; }
+    if (!features.length) { setAddStatus('ポリゴンが見つかりませんでした', 'error'); return; }
+    features.forEach(function (ft, i) {
+      if (ft.properties == null) ft.properties = {};
+      if (ft.properties.fid == null) ft.properties.fid = i;
+    });
+    const id = 'field_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    const key = 'custom_' + id;
+    const ls = makeCustomLayerState({
+      key: key, title: (defaultTitle || '圃場レイヤ'), data: { type: 'FeatureCollection', features: features },
+      nameProp: guessNameProp(features),
+      defaultFill: '#e65100', defaultBorder: '#8d3f00', opacity: 0.5, weight: 1.5,
+      minZoom: (layers.chiku && layers.chiku.minZoom) ? layers.chiku.minZoom : 12,
+      id: id, path: 'layers/' + id + '.geojson', sha: null
+    });
+    layers[key] = ls;
+    ls.data.features.forEach(function (ft) {
+      const fid = String(ft.properties.fid);
+      ls.featureByFid[fid] = ft;
+      ls.bboxByFid[fid] = computeBBox(ft.geometry);
+    });
+    insertCustomLayerPanel(ls);
+    refreshViewport(ls);
+
+    if (github.connected) {
+      setAddStatus('「' + ls.title + '」をGitHubに保存中…', 'pending');
+      try {
+        await ghSaveLayer(ls);
+        await ghUpsertManifestEntry(ls);
+        setAddStatus('「' + ls.title + '」を追加し、GitHubに保存しました', 'ok');
+      } catch (e) {
+        setAddStatus('GitHubへの保存に失敗しました: ' + e.message, 'error');
+      }
+    } else {
+      setAddStatus('「' + ls.title + '」をこの端末に追加しました（GitHub未接続のため他の人とは共有されません）', 'warn');
+    }
+  }
+
+  async function loadManifestAndLayers() {
+    const cur = await ghGetManifest();
+    const list = cur.manifest.layers || [];
+    for (let i = 0; i < list.length; i++) {
+      const entry = list[i];
+      const key = 'custom_' + entry.id;
+      if (layers[key]) continue;
+      try {
+        const file = await ghGetFile(entry.path);
+        if (!file) continue;
+        const geojson = JSON.parse(b64DecodeUtf8(file.content));
+        const features = geojson.features || [];
+        features.forEach(function (ft, idx) {
+          if (ft.properties == null) ft.properties = {};
+          if (ft.properties.fid == null) ft.properties.fid = idx;
+        });
+        const ls = makeCustomLayerState({
+          key: key, title: entry.title || '圃場レイヤ', data: { type: 'FeatureCollection', features: features },
+          nameProp: entry.nameProp || guessNameProp(features),
+          defaultFill: entry.defaultFill || '#e65100', defaultBorder: entry.defaultBorder || '#8d3f00',
+          opacity: entry.opacity != null ? entry.opacity : 0.5, weight: entry.weight || 1.5,
+          minZoom: entry.minZoom != null ? entry.minZoom : 12,
+          id: entry.id, path: entry.path, sha: file.sha
+        });
+        layers[key] = ls;
+        ls.data.features.forEach(function (ft) {
+          const fid = String(ft.properties.fid);
+          ls.featureByFid[fid] = ft;
+          ls.bboxByFid[fid] = computeBBox(ft.geometry);
+        });
+        insertCustomLayerPanel(ls);
+        refreshViewport(ls);
+      } catch (e) {
+        console.error('レイヤ読み込みに失敗しました', entry, e);
+      }
+    }
+  }
+
+  async function connectGithub() {
+    const owner = document.getElementById('gh-owner').value.trim();
+    const repo = document.getElementById('gh-repo').value.trim();
+    const branch = document.getElementById('gh-branch').value.trim() || 'main';
+    const token = document.getElementById('gh-token').value.trim();
+    if (!owner || !repo || !token) {
+      setGhStatus('オーナー/リポジトリ/トークンを入力してください', 'error');
+      return;
+    }
+    github.owner = owner; github.repo = repo; github.branch = branch; github.token = token;
+    setGhStatus('接続中…', 'pending');
+    try {
+      await ghRequest('');
+      github.connected = true;
+      setGhStatus('接続済み: ' + github.owner + '/' + github.repo, 'ok');
+      if (document.getElementById('gh-remember').checked) {
+        try { localStorage.setItem('chibaGuideMapGh', JSON.stringify(github)); } catch (e) {}
+      } else {
+        try { localStorage.removeItem('chibaGuideMapGh'); } catch (e) {}
+      }
+      setAddStatus('GitHubに接続しました。圃場レイヤを追加するとチームで共有されます。', 'ok');
+      await loadManifestAndLayers();
+    } catch (e) {
+      github.connected = false;
+      setGhStatus('接続エラー: ' + e.message, 'error');
+    }
+  }
+
+  document.getElementById('gh-connect-btn').addEventListener('click', connectGithub);
+
+  document.getElementById('add-layer-btn').addEventListener('click', function () {
+    document.getElementById('add-layer-file').click();
+  });
+  document.getElementById('add-layer-file').addEventListener('change', function (e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setAddStatus('読み込み中…', 'pending');
+    const reader = new FileReader();
+    reader.onload = function () {
+      let geojson;
+      try { geojson = JSON.parse(reader.result); } catch (err) { setAddStatus('GeoJSONの解析に失敗しました: ' + err.message, 'error'); return; }
+      createCustomLayer(geojson, file.name.replace(/\.(geo)?json$/i, ''));
+    };
+    reader.onerror = function () { setAddStatus('ファイルの読み込みに失敗しました', 'error'); };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  (function prefillGithubFromStorage() {
+    try {
+      const saved = localStorage.getItem('chibaGuideMapGh');
+      if (!saved) return;
+      const cfg = JSON.parse(saved);
+      document.getElementById('gh-owner').value = cfg.owner || '';
+      document.getElementById('gh-repo').value = cfg.repo || '';
+      document.getElementById('gh-branch').value = cfg.branch || 'main';
+      document.getElementById('gh-token').value = cfg.token || '';
+      document.getElementById('gh-remember').checked = true;
+      connectGithub();
+    } catch (e) {}
+  })();
+
+  document.getElementById('loading').style.display = 'none';
+})();
+</script>
+</body>
+</html>
