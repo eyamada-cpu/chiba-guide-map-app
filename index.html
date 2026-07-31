@@ -104,6 +104,7 @@
   .opacity-row .opacity-val { font-size:11px; font-weight:700; color:var(--primary-dark); width:34px; text-align:right; }
 
   .search-box { width:100%; margin-top:12px; padding:7px 10px; border:1px solid var(--border-soft); border-radius:8px; font-size:12px; background:#fbfbfc; }
+  .nameprop-select { flex:1; padding:6px 8px; border:1px solid var(--border-soft); border-radius:8px; font-size:12px; background:#fbfbfc; }
   .search-box:focus { outline:2px solid var(--primary-light); border-color:var(--primary); }
   .list-meta { font-size:10.5px; color:var(--text-mute); margin:8px 0 3px; }
   .feature-list { max-height:190px; overflow-y:auto; margin-top:2px; border-top:1px solid #f0f1f2; }
@@ -673,6 +674,19 @@ const DATA_CHIKU = {
 
   wireLayerControls(layers.shisho, 'shisho');
   wireLayerControls(layers.chiku, 'chiku');
+  function wireNamePropSelect(ls) {
+    const sel = document.getElementById('nameprop-' + ls.key);
+    if (!sel) return;
+    sel.addEventListener('change', function (e) {
+      ls.nameProp = e.target.value || null;
+      refreshList(ls, ls.key);
+      if (selection.key === ls.key) renderSelectedCard();
+      if (github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+      }
+    });
+  }
+
 
   function wireCollapseButton(section) {
     const btn = section.querySelector('.collapse-btn');
@@ -827,6 +841,20 @@ const DATA_CHIKU = {
     el.className = 'add-layer-status' + (kind ? (' ' + kind) : '');
   }
 
+  function collectPropertyKeys(features) {
+    const keys = [];
+    const seen = {};
+    features.forEach(function (ft) {
+      const props = ft.properties || {};
+      Object.keys(props).forEach(function (k) {
+        if (k === 'fid' || seen[k]) return;
+        seen[k] = true;
+        keys.push(k);
+      });
+    });
+    return keys;
+  }
+
   function guessNameProp(features) {
     if (!features.length) return null;
     const props = features[0].properties || {};
@@ -836,6 +864,10 @@ const DATA_CHIKU = {
 
   function insertCustomLayerPanel(ls) {
     const container = document.getElementById('custom-layers-container');
+    const propKeys = collectPropertyKeys(ls.data.features);
+    const namePropOptionsHtml = propKeys.length ? propKeys.map(function (k) {
+      return '<option value="' + escapeHtml(k) + '"' + (k === ls.nameProp ? ' selected' : '') + '>' + escapeHtml(k) + '</option>';
+    }).join('') : '<option value="">(項目なし)</option>';
     const wrap = document.createElement('div');
     wrap.innerHTML =
       '<div class="section custom" id="section-' + ls.key + '" style="border-top-color:' + ls.defaultBorder + '">' +
@@ -860,6 +892,7 @@ const DATA_CHIKU = {
           '<div class="opacity-row"><span>透明度</span><input type="range" id="opacity-' + ls.key + '" min="0" max="100" value="' + Math.round(ls.opacity * 100) + '"><span class="opacity-val" id="opacity-' + ls.key + '-val">' + Math.round(ls.opacity * 100) + '%</span></div>' +
           '<div class="opacity-row"><span>枠太さ</span><input type="range" id="weight-' + ls.key + '" min="0.5" max="6" step="0.5" value="' + ls.weight + '"><span class="opacity-val" id="weight-' + ls.key + '-val">' + ls.weight + 'px</span></div>' +
           '<div class="opacity-row"><span>表示開始ズーム</span><input type="range" id="minzoom-' + ls.key + '" min="0" max="18" step="1" value="' + ls.minZoom + '"><span class="opacity-val" id="minzoom-' + ls.key + '-val">' + ls.minZoom + '</span></div>' +
+          '<div class="opacity-row"><span>表示名の項目</span><select class="nameprop-select" id="nameprop-' + ls.key + '">' + namePropOptionsHtml + '</select></div>' +
           '<input type="text" class="search-box" id="search-' + ls.key + '" placeholder="🔍 名称で検索">' +
           '<div class="list-meta" id="meta-' + ls.key + '"></div>' +
           '<div class="feature-list" id="list-' + ls.key + '"></div>' +
@@ -871,6 +904,7 @@ const DATA_CHIKU = {
     wireLayerControls(ls, ls.key);
     wireMinZoomControl(ls);
     wireRenameButton(ls);
+    wireNamePropSelect(ls);
     wireCollapseButton(section);
 
     renderList(ls, 'list-' + ls.key, 'meta-' + ls.key, '');
