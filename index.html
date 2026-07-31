@@ -95,6 +95,8 @@
 
   .bulk-controls { margin-top:10px; display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; }
   .bulk-controls .color-field { display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--text-mute); }
+  .onoff-label { display:flex; align-items:center; gap:4px; cursor:pointer; user-select:none; }
+  .onoff-label input[type="checkbox"] { margin:0; }
   .bulk-controls input[type=color] { width:36px; height:28px; padding:0; border:1px solid #ccc; border-radius:6px; cursor:pointer; }
   .bulk-controls button.apply-btn { font-size:12px; padding:7px 12px; border:none; background:var(--primary); color:#fff; border-radius:8px; cursor:pointer; font-weight:600; height:28px; align-self:flex-end; }
   .bulk-controls button.apply-btn:hover { background:var(--primary-dark); }
@@ -171,8 +173,8 @@
       </div>
       <div class="section-body">
         <div class="bulk-controls">
-          <div class="color-field">塗り<input type="color" id="fill-shisho" value="#4a90d9"></div>
-          <div class="color-field">枠<input type="color" id="border-shisho" value="#1e4d7b"></div>
+          <div class="color-field"><label class="onoff-label"><input type="checkbox" id="fillon-shisho" checked> 塗り</label><input type="color" id="fill-shisho" value="#4a90d9"></div>
+          <div class="color-field"><label class="onoff-label"><input type="checkbox" id="borderon-shisho" checked> 枠</label><input type="color" id="border-shisho" value="#1e4d7b"></div>
           <button type="button" class="apply-btn" id="apply-shisho">レイヤ全体に適用</button>
         </div>
         <div class="opacity-row"><span>透明度</span><input type="range" id="opacity-shisho" min="0" max="100" value="55"><span class="opacity-val" id="opacity-shisho-val">55%</span></div>
@@ -193,8 +195,8 @@
       </div>
       <div class="section-body">
         <div class="bulk-controls">
-          <div class="color-field">塗り<input type="color" id="fill-chiku" value="#7cb96f"></div>
-          <div class="color-field">枠<input type="color" id="border-chiku" value="#2e6b26"></div>
+          <div class="color-field"><label class="onoff-label"><input type="checkbox" id="fillon-chiku" checked> 塗り</label><input type="color" id="fill-chiku" value="#7cb96f"></div>
+          <div class="color-field"><label class="onoff-label"><input type="checkbox" id="borderon-chiku" checked> 枠</label><input type="color" id="border-chiku" value="#2e6b26"></div>
           <button type="button" class="apply-btn" id="apply-chiku">レイヤ全体に適用</button>
         </div>
         <div class="opacity-row"><span>透明度</span><input type="range" id="opacity-chiku" min="0" max="100" value="45"><span class="opacity-val" id="opacity-chiku-val">45%</span></div>
@@ -273,16 +275,87 @@ const DATA_CHIKU = {
 
   L.control.layers({ '白地図（標準地図）': std, '航空写真': air }, {}, { collapsed: false, position: 'topright' }).addTo(map);
 
+  // ---------------------------------------------------------------------
+  // ローカルUI状態（このブラウザだけの記憶）: レイヤパネルの開閉状態、
+  // 支所・地区レイヤ（GitHub非対応の組み込みレイヤ）の色・透明度・枠太さ・
+  // 塗り/枠のON/OFFを localStorage に保存し、次回開いたときに復元する。
+  // 圃場レイヤ（custom）は既存どおり GitHub の manifest.json 側で共有される。
+  // ---------------------------------------------------------------------
+  const UI_STATE_KEY = 'chibaGuideMapUiState';
+  function loadUiState() {
+    try { return JSON.parse(localStorage.getItem(UI_STATE_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  const uiState = loadUiState();
+  uiState.collapsed = uiState.collapsed || {};
+  uiState.layerStyle = uiState.layerStyle || {};
+  function saveUiState() {
+    try { localStorage.setItem(UI_STATE_KEY, JSON.stringify(uiState)); } catch (e) {}
+  }
+
+  function applySavedBuiltinStyle(key, ls) {
+    const saved = uiState.layerStyle[key];
+    if (saved) {
+      if (saved.defaultFill) ls.defaultFill = saved.defaultFill;
+      if (saved.defaultBorder) ls.defaultBorder = saved.defaultBorder;
+      if (saved.opacity != null) ls.opacity = saved.opacity;
+      if (saved.weight != null) ls.weight = saved.weight;
+      if (saved.fillEnabled != null) ls.fillEnabled = saved.fillEnabled;
+      if (saved.strokeEnabled != null) ls.strokeEnabled = saved.strokeEnabled;
+    }
+  }
+
+  function saveBuiltinStyle(key, ls) {
+    uiState.layerStyle[key] = {
+      defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
+      opacity: ls.opacity, weight: ls.weight,
+      fillEnabled: ls.fillEnabled, strokeEnabled: ls.strokeEnabled
+    };
+    saveUiState();
+  }
+
+  // 圃場レイヤ（custom）はGitHubのmanifest.jsonへ、組み込みレイヤ（支所・地区）は
+  // このブラウザのlocalStorageへ、それぞれスタイル変更を保存する共通の窓口。
+  function persistLayerStyle(ls) {
+    if (ls.custom) {
+      if (github.connected) {
+        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+      }
+    } else {
+      saveBuiltinStyle(ls.key, ls);
+    }
+  }
+
+  function syncControlsToState(ls, prefix) {
+    const fillInput = document.getElementById('fill-' + prefix);
+    const borderInput = document.getElementById('border-' + prefix);
+    const opacityInput = document.getElementById('opacity-' + prefix);
+    const opacityVal = document.getElementById('opacity-' + prefix + '-val');
+    const weightInput = document.getElementById('weight-' + prefix);
+    const weightVal = document.getElementById('weight-' + prefix + '-val');
+    const fillOnInput = document.getElementById('fillon-' + prefix);
+    const borderOnInput = document.getElementById('borderon-' + prefix);
+    if (fillInput) fillInput.value = ls.defaultFill;
+    if (borderInput) borderInput.value = ls.defaultBorder;
+    if (opacityInput) opacityInput.value = Math.round(ls.opacity * 100);
+    if (opacityVal) opacityVal.textContent = Math.round(ls.opacity * 100) + '%';
+    if (weightInput) weightInput.value = ls.weight;
+    if (weightVal) weightVal.textContent = ls.weight + 'px';
+    if (fillOnInput) fillOnInput.checked = ls.fillEnabled !== false;
+    if (borderOnInput) borderOnInput.checked = ls.strokeEnabled !== false;
+  }
+
   const layers = {
     shisho: {
       key: 'shisho', title: '支所レイヤ', data: DATA_SHISHO, nameProp: '支所', subProp: '市町村', popupProp: '市町村',
       defaultFill: '#4a90d9', defaultBorder: '#1e4d7b', opacity: 0.55, weight: 1.5,
+      fillEnabled: true, strokeEnabled: true,
       dynamic: false, visible: true, minZoom: 0, custom: false,
       geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {}
     },
     chiku: {
       key: 'chiku', title: '地区レイヤ', data: DATA_CHIKU, nameProp: 'S_NAME', subProp: null, popupProp: null,
       defaultFill: '#7cb96f', defaultBorder: '#2e6b26', opacity: 0.45, weight: 1.2,
+      fillEnabled: true, strokeEnabled: true,
       dynamic: true, visible: true, minZoom: 0, custom: false,
       geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {}
     }
@@ -294,6 +367,7 @@ const DATA_CHIKU = {
       nameProp: opts.nameProp, subProp: null, popupProp: null,
       defaultFill: opts.defaultFill, defaultBorder: opts.defaultBorder,
       opacity: opts.opacity, weight: opts.weight,
+      fillEnabled: opts.fillEnabled !== false, strokeEnabled: opts.strokeEnabled !== false,
       dynamic: true, visible: true, minZoom: opts.minZoom, custom: true,
       geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {},
       id: opts.id, path: opts.path, sha: opts.sha || null
@@ -305,19 +379,23 @@ const DATA_CHIKU = {
   function styleFor(ls, feature) {
     const fid = String(feature.properties.fid);
     const ov = ls.overrides[fid];
+    const fillOn = ls.fillEnabled !== false;
+    const strokeOn = ls.strokeEnabled !== false;
     return {
       fillColor: ov && ov.fill ? ov.fill : ls.defaultFill,
       color: ov && ov.border ? ov.border : ls.defaultBorder,
-      weight: ov && ov.weight ? ov.weight : ls.weight,
-      fillOpacity: ls.opacity,
-      opacity: ls.opacity,
+      weight: strokeOn ? (ov && ov.weight ? ov.weight : ls.weight) : 0,
+      fillOpacity: fillOn ? ls.opacity : 0,
+      opacity: strokeOn ? ls.opacity : 0,
+      fill: fillOn,
+      stroke: strokeOn,
       dashArray: null
     };
   }
 
   function selectedStyleFor(ls, feature) {
     const base = styleFor(ls, feature);
-    return Object.assign({}, base, { weight: Math.max(base.weight + 3, 5), color: '#ff6f00', dashArray: '6,4', opacity: 1 });
+    return Object.assign({}, base, { weight: Math.max((base.weight || 0) + 3, 5), color: '#ff6f00', dashArray: '6,4', opacity: 1, stroke: true });
   }
 
   // Pure numeric bbox of a Polygon/MultiPolygon geometry -- read-only, never mutates
@@ -424,6 +502,11 @@ const DATA_CHIKU = {
   function refreshAllViewports() {
     Object.keys(layers).forEach(function (k) { refreshViewport(layers[k]); });
   }
+
+  applySavedBuiltinStyle('shisho', layers.shisho);
+  applySavedBuiltinStyle('chiku', layers.chiku);
+  syncControlsToState(layers.shisho, 'shisho');
+  syncControlsToState(layers.chiku, 'chiku');
 
   initStaticLayer(layers.shisho);
   initDynamicLayer(layers.chiku);
@@ -575,43 +658,74 @@ const DATA_CHIKU = {
         map.removeLayer(ls.geo);
       }
     });
-    document.getElementById('apply-' + prefix).addEventListener('click', function () {
-      ls.defaultFill = document.getElementById('fill-' + prefix).value;
-      ls.defaultBorder = document.getElementById('border-' + prefix).value;
-      ls.overrides = {};
+
+    // 現在のls（塗り/枠色、透明度、枠太さ、塗り/枠ON-OFF、個別上書き）に基づいて
+    // 表示中の全ポリゴンのスタイルを再計算する。色・透明度・枠太さ・ON/OFFの
+    // どの変更でもこの一箇所を呼べば見た目にすぐ反映される。
+    function restyleAll() {
       Object.keys(ls.index).forEach(function (fid) {
         const l = ls.index[fid];
         if (selection.key === ls.key && selection.fid === fid) {
           l.setStyle(selectedStyleFor(ls, l.feature));
         } else {
-          l.setStyle({ fillColor: ls.defaultFill, color: ls.defaultBorder, weight: ls.weight });
+          l.setStyle(styleFor(ls, l.feature));
         }
       });
       if (selection.key === ls.key) renderSelectedCard();
+    }
+
+    const fillInput = document.getElementById('fill-' + prefix);
+    const borderInput = document.getElementById('border-' + prefix);
+    const fillOnInput = document.getElementById('fillon-' + prefix);
+    const borderOnInput = document.getElementById('borderon-' + prefix);
+
+    function applyBulkColors() {
+      ls.defaultFill = fillInput.value;
+      ls.defaultBorder = borderInput.value;
+      ls.overrides = {};
+      restyleAll();
       refreshList(ls, prefix);
-      if (ls.custom && github.connected) {
-        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
-      }
-    });
+    }
+    // 「レイヤ全体に適用」ボタンを押さなくても、色を選んだ瞬間（input）に
+    // その場で反映される。change（選択確定・ピッカーを閉じたタイミング）で
+    // GitHub／localStorageへの保存を行う。
+    fillInput.addEventListener('input', applyBulkColors);
+    borderInput.addEventListener('input', applyBulkColors);
+    fillInput.addEventListener('change', function () { persistLayerStyle(ls); });
+    borderInput.addEventListener('change', function () { persistLayerStyle(ls); });
+    const applyBtn = document.getElementById('apply-' + prefix);
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function () {
+        applyBulkColors();
+        persistLayerStyle(ls);
+      });
+    }
+
+    if (fillOnInput) {
+      fillOnInput.addEventListener('change', function (e) {
+        ls.fillEnabled = e.target.checked;
+        restyleAll();
+        persistLayerStyle(ls);
+      });
+    }
+    if (borderOnInput) {
+      borderOnInput.addEventListener('change', function (e) {
+        ls.strokeEnabled = e.target.checked;
+        restyleAll();
+        persistLayerStyle(ls);
+      });
+    }
+
     const opacityInput = document.getElementById('opacity-' + prefix);
     const opacityVal = document.getElementById('opacity-' + prefix + '-val');
     opacityInput.addEventListener('input', function (e) {
       const v = Number(e.target.value) / 100;
       ls.opacity = v;
       opacityVal.textContent = e.target.value + '%';
-      Object.keys(ls.index).forEach(function (fid) {
-        const l = ls.index[fid];
-        if (selection.key === ls.key && selection.fid === fid) {
-          l.setStyle({ fillOpacity: v });
-        } else {
-          l.setStyle({ fillOpacity: v, opacity: v });
-        }
-      });
+      restyleAll();
     });
     opacityInput.addEventListener('change', function () {
-      if (ls.custom && github.connected) {
-        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
-      }
+      persistLayerStyle(ls);
     });
     const weightInput = document.getElementById('weight-' + prefix);
     const weightVal = document.getElementById('weight-' + prefix + '-val');
@@ -619,22 +733,10 @@ const DATA_CHIKU = {
       const w = Number(e.target.value);
       ls.weight = w;
       weightVal.textContent = w + 'px';
-      Object.keys(ls.index).forEach(function (fid) {
-        const l = ls.index[fid];
-        const ov = ls.overrides[fid];
-        const effective = (ov && ov.weight) ? ov.weight : w;
-        if (selection.key === ls.key && selection.fid === fid) {
-          l.setStyle(selectedStyleFor(ls, l.feature));
-        } else {
-          l.setStyle({ weight: effective });
-        }
-      });
-      if (selection.key === ls.key) renderSelectedCard();
+      restyleAll();
     });
     weightInput.addEventListener('change', function () {
-      if (ls.custom && github.connected) {
-        ghUpsertManifestEntry(ls).catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
-      }
+      persistLayerStyle(ls);
     });
   }
 
@@ -691,7 +793,12 @@ const DATA_CHIKU = {
   function wireCollapseButton(section) {
     const btn = section.querySelector('.collapse-btn');
     if (btn) {
-      btn.addEventListener('click', function () { section.classList.toggle('collapsed'); });
+      if (uiState.collapsed[section.id]) section.classList.add('collapsed');
+      btn.addEventListener('click', function () {
+        section.classList.toggle('collapsed');
+        uiState.collapsed[section.id] = section.classList.contains('collapsed');
+        saveUiState();
+      });
     }
   }
   Array.prototype.forEach.call(document.querySelectorAll('.section'), wireCollapseButton);
@@ -826,7 +933,8 @@ const DATA_CHIKU = {
       filtered.push({
         id: ls.id, title: ls.title, path: ls.path, nameProp: ls.nameProp,
         defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
-        opacity: ls.opacity, weight: ls.weight, minZoom: ls.minZoom
+        opacity: ls.opacity, weight: ls.weight, minZoom: ls.minZoom,
+        fillEnabled: ls.fillEnabled, strokeEnabled: ls.strokeEnabled
       });
       const body = {
         message: 'マニフェスト更新: ' + ls.title,
@@ -901,8 +1009,8 @@ const DATA_CHIKU = {
         '</div>' +
         '<div class="section-body">' +
           '<div class="bulk-controls">' +
-            '<div class="color-field">塗り<input type="color" id="fill-' + ls.key + '" value="' + ls.defaultFill + '"></div>' +
-            '<div class="color-field">枠<input type="color" id="border-' + ls.key + '" value="' + ls.defaultBorder + '"></div>' +
+            '<div class="color-field"><label class="onoff-label"><input type="checkbox" id="fillon-' + ls.key + '"' + (ls.fillEnabled !== false ? ' checked' : '') + '> 塗り</label><input type="color" id="fill-' + ls.key + '" value="' + ls.defaultFill + '"></div>' +
+            '<div class="color-field"><label class="onoff-label"><input type="checkbox" id="borderon-' + ls.key + '"' + (ls.strokeEnabled !== false ? ' checked' : '') + '> 枠</label><input type="color" id="border-' + ls.key + '" value="' + ls.defaultBorder + '"></div>' +
             '<button type="button" class="apply-btn" id="apply-' + ls.key + '">レイヤ全体に適用</button>' +
           '</div>' +
           '<div class="opacity-row"><span>透明度</span><input type="range" id="opacity-' + ls.key + '" min="0" max="100" value="' + Math.round(ls.opacity * 100) + '"><span class="opacity-val" id="opacity-' + ls.key + '-val">' + Math.round(ls.opacity * 100) + '%</span></div>' +
@@ -992,6 +1100,7 @@ const DATA_CHIKU = {
           nameProp: entry.nameProp || guessNameProp(features),
           defaultFill: entry.defaultFill || '#e65100', defaultBorder: entry.defaultBorder || '#8d3f00',
           opacity: entry.opacity != null ? entry.opacity : 0.5, weight: entry.weight || 1.5,
+          fillEnabled: entry.fillEnabled, strokeEnabled: entry.strokeEnabled,
           minZoom: entry.minZoom != null ? entry.minZoom : 12,
           id: entry.id, path: entry.path, sha: file.sha
         });
