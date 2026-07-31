@@ -69,8 +69,6 @@
   .selected-buttons { display:flex; gap:6px; margin-top:6px; }
   .selected-buttons button { flex:1; font-size:11.5px; padding:7px 6px; border-radius:8px; border:1px solid var(--border-soft); background:#f7f8f9; cursor:pointer; font-weight:600; transition:background .15s; }
   .selected-buttons button:hover { background:#eceeef; }
-  #sel-apply { background:var(--accent); color:#fff; border-color:var(--accent); }
-  #sel-apply:hover { background:#e56500; }
 
   .section { background:var(--card-bg); border:1px solid var(--border-soft); border-radius:var(--radius); padding:14px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
   .section.shisho { border-top:4px solid var(--shisho-border); }
@@ -123,6 +121,22 @@
   .name-popup .leaflet-popup-content-wrapper { border-radius:20px; box-shadow:0 4px 14px rgba(0,0,0,0.2); }
   .name-popup .leaflet-popup-content { margin:8px 14px; font-weight:700; font-size:12.5px; color:var(--text); }
   .name-popup .leaflet-popup-tip { box-shadow:0 2px 6px rgba(0,0,0,0.15); }
+  .feature-popup .leaflet-popup-content-wrapper { border-radius:14px; box-shadow:0 4px 14px rgba(0,0,0,0.2); }
+  .feature-popup .leaflet-popup-content { margin:9px 12px; font-size:11px; color:var(--text); }
+  .feature-popup .leaflet-popup-tip { box-shadow:0 2px 6px rgba(0,0,0,0.15); }
+  .popup-attr-wrap { max-height:160px; overflow-y:auto; margin-bottom:8px; border-bottom:1px solid var(--border-soft); padding-bottom:6px; }
+  .popup-attr-table { border-collapse:collapse; font-size:10.5px; width:100%; }
+  .popup-attr-table th { text-align:left; color:var(--text-mute); font-weight:600; padding:1px 8px 1px 0; vertical-align:top; white-space:nowrap; }
+  .popup-attr-table td { padding:1px 0; word-break:break-all; }
+  .popup-style-row { display:flex; gap:10px; margin-bottom:6px; }
+  .popup-style-row label { display:flex; flex-direction:column; align-items:center; gap:2px; font-size:10px; color:var(--text-mute); }
+  .popup-style-row input[type=color] { width:32px; height:24px; padding:0; border:1px solid #ccc; border-radius:6px; cursor:pointer; }
+  .popup-weight-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; font-size:10.5px; color:var(--text-mute); }
+  .popup-weight-row input[type=range] { flex:1; }
+  .popup-weight-val { font-weight:700; color:var(--primary-dark); width:30px; text-align:right; }
+  .popup-btn-row { display:flex; gap:6px; }
+  .popup-btn-row button { flex:1; font-size:10.5px; padding:5px 6px; border-radius:6px; border:1px solid var(--border-soft); background:#f7f8f9; cursor:pointer; font-weight:600; }
+  .popup-btn-row button:hover { background:#eceeef; }
 
   .rename-btn { background:none; border:none; cursor:pointer; font-size:12px; color:var(--text-mute); padding:2px 5px; border-radius:5px; }
   .rename-btn:hover { background:#e7ebec; color:var(--text); }
@@ -167,7 +181,7 @@
       <div class="layer-header">
         <div class="layer-title-wrap collapse-btn" data-target="section-shisho">
           <span class="chevron">▾</span>
-          <div class="layer-title"><span class="dot" style="background:var(--shisho-fill)"></span>🏢 支所レイヤ <span class="count">（62件）</span></div>
+          <div class="layer-title">支所レイヤ <span class="count">（62件）</span></div>
         </div>
         <label class="switch"><input type="checkbox" id="vis-shisho" checked><span class="slider-switch"></span></label>
       </div>
@@ -189,7 +203,7 @@
       <div class="layer-header">
         <div class="layer-title-wrap collapse-btn" data-target="section-chiku">
           <span class="chevron">▾</span>
-          <div class="layer-title"><span class="dot" style="background:var(--chiku-fill)"></span>🏘️ 地区レイヤ <span class="count">（6,675件）</span></div>
+          <div class="layer-title">地区レイヤ <span class="count">（6,675件）</span></div>
         </div>
         <label class="switch"><input type="checkbox" id="vis-chiku" checked><span class="slider-switch"></span></label>
       </div>
@@ -261,7 +275,16 @@ const DATA_CHIKU = {
   // volume of them is expected.
   const map = L.map('map', { preferCanvas: true }).setView([35.55, 140.25], 10);
 
-  const sharedRenderer = L.canvas();
+  // 境界データ（支所・地区）は圃場（custom）レイヤより必ず下に描画されるよう、
+  // 専用のペイン・レンダラーに分離する。動的な追加・削除で描画順が入れ替わっても
+  // ペインのz-indexによって重ね順は常に固定される。
+  map.createPane('boundaryPane');
+  map.getPane('boundaryPane').style.zIndex = 350;
+  map.createPane('fieldPane');
+  map.getPane('fieldPane').style.zIndex = 450;
+  const boundaryRenderer = L.canvas({ pane: 'boundaryPane' });
+  const fieldRenderer = L.canvas({ pane: 'fieldPane' });
+  function rendererFor(ls) { return ls.custom ? fieldRenderer : boundaryRenderer; }
 
   const tileOptions = { maxZoom: 18 };
 
@@ -416,12 +439,109 @@ const DATA_CHIKU = {
     return [minX, minY, maxX, maxY];
   }
 
+  // ポップアップの中身を組み立てる。属性テーブル（そのポリゴンが持つ全プロパティ、
+  // 小さいフォント）と、個別の塗り・枠色・枠太さの調整UIをここにまとめる。
+  // レイヤパネルの「選択中のポリゴン」カードには色調整UIを置かず、
+  // 地図上のポップアップからその場で編集できるようにしている。
+  function buildPopupContent(ls, feature, lyr) {
+    const fid = String(feature.properties.fid);
+    const wrap = document.createElement('div');
+
+    const props = feature.properties || {};
+    const keys = Object.keys(props);
+    if (keys.length) {
+      const tableWrap = document.createElement('div');
+      tableWrap.className = 'popup-attr-wrap';
+      const table = document.createElement('table');
+      table.className = 'popup-attr-table';
+      keys.forEach(function (k) {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        th.textContent = k;
+        const td = document.createElement('td');
+        const v = props[k];
+        td.textContent = (v === null || v === undefined) ? '' : String(v);
+        tr.appendChild(th);
+        tr.appendChild(td);
+        table.appendChild(tr);
+      });
+      tableWrap.appendChild(table);
+      wrap.appendChild(tableWrap);
+    }
+
+    const ov = ls.overrides[fid];
+    const fill = ov && ov.fill ? ov.fill : ls.defaultFill;
+    const border = ov && ov.border ? ov.border : ls.defaultBorder;
+    const weight = ov && ov.weight ? ov.weight : ls.weight;
+
+    const styleRow = document.createElement('div');
+    styleRow.className = 'popup-style-row';
+    const fillLabel = document.createElement('label');
+    fillLabel.textContent = '塗り';
+    const fillInput = document.createElement('input');
+    fillInput.type = 'color';
+    fillInput.value = fill;
+    fillLabel.appendChild(fillInput);
+    const borderLabel = document.createElement('label');
+    borderLabel.textContent = '枠';
+    const borderInput = document.createElement('input');
+    borderInput.type = 'color';
+    borderInput.value = border;
+    borderLabel.appendChild(borderInput);
+    styleRow.appendChild(fillLabel);
+    styleRow.appendChild(borderLabel);
+    wrap.appendChild(styleRow);
+
+    const weightRow = document.createElement('div');
+    weightRow.className = 'popup-weight-row';
+    const weightSpan = document.createElement('span');
+    weightSpan.textContent = '枠太さ';
+    const weightInput = document.createElement('input');
+    weightInput.type = 'range';
+    weightInput.min = '0.5';
+    weightInput.max = '6';
+    weightInput.step = '0.5';
+    weightInput.value = weight;
+    const weightVal = document.createElement('span');
+    weightVal.className = 'popup-weight-val';
+    weightVal.textContent = weight + 'px';
+    weightRow.appendChild(weightSpan);
+    weightRow.appendChild(weightInput);
+    weightRow.appendChild(weightVal);
+    wrap.appendChild(weightRow);
+
+    function applyLive() {
+      ls.overrides[fid] = { fill: fillInput.value, border: borderInput.value, weight: Number(weightInput.value) };
+      weightVal.textContent = weightInput.value + 'px';
+      lyr.setStyle(selectedStyleFor(ls, feature));
+      refreshList(ls, ls.key);
+    }
+    fillInput.addEventListener('input', applyLive);
+    borderInput.addEventListener('input', applyLive);
+    weightInput.addEventListener('input', applyLive);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'popup-btn-row';
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.textContent = '既定に戻す';
+    resetBtn.addEventListener('click', function () {
+      delete ls.overrides[fid];
+      lyr.setStyle(selectedStyleFor(ls, feature));
+      lyr.closePopup();
+      lyr.openPopup();
+    });
+    btnRow.appendChild(resetBtn);
+    wrap.appendChild(btnRow);
+
+    return wrap;
+  }
+
   function bindFeatureInteractions(ls, feature, lyr) {
     const fid = String(feature.properties.fid);
     lyr.bindPopup(function () {
-      const popProp = ls.popupProp || ls.nameProp;
-      return '<div>' + escapeHtml((popProp && feature.properties[popProp]) || '(名称なし)') + '</div>';
-    }, { className: 'name-popup', closeButton: true });
+      return buildPopupContent(ls, feature, lyr);
+    }, { className: 'feature-popup', closeButton: true, maxWidth: 240, minWidth: 170 });
     lyr.on('click', function (e) {
       selectFeature(ls.key, fid);
       if (L.DomEvent) L.DomEvent.stopPropagation(e);
@@ -431,7 +551,7 @@ const DATA_CHIKU = {
   // Static layer (支所): all features attached once.
   function initStaticLayer(ls) {
     ls.geo = L.geoJSON(ls.data, {
-      renderer: sharedRenderer,
+      renderer: rendererFor(ls),
       style: function (feature) { return styleFor(ls, feature); },
       onEachFeature: function (feature, lyr) {
         const fid = String(feature.properties.fid);
@@ -458,7 +578,7 @@ const DATA_CHIKU = {
 
   function makeDynamicLayer(ls, feature) {
     const lyr = L.geoJSON(feature, {
-      renderer: sharedRenderer,
+      renderer: rendererFor(ls),
       style: function (f) { return styleFor(ls, f); }
     }).getLayers()[0];
     bindFeatureInteractions(ls, feature, lyr);
@@ -593,48 +713,18 @@ const DATA_CHIKU = {
     const ls = layers[selection.key];
     const feature = ls.featureByFid[selection.fid];
     if (!feature) { card.innerHTML = '<div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>'; return; }
-    const ov = ls.overrides[selection.fid];
-    const fill = ov && ov.fill ? ov.fill : ls.defaultFill;
-    const border = ov && ov.border ? ov.border : ls.defaultBorder;
-    const weight = ov && ov.weight ? ov.weight : ls.weight;
     const name = (ls.nameProp && feature.properties[ls.nameProp]) || '(名称なし)';
     const sub = ls.subProp ? feature.properties[ls.subProp] : null;
-    const layerLabel = ls.custom ? ('🌾 ' + ls.title) : (ls.key === 'shisho' ? '🏢 支所' : '🏘️ 地区');
+    const layerLabel = ls.custom ? ls.title : (ls.key === 'shisho' ? '支所' : '地区');
     card.innerHTML =
       '<div class="selected-badge" style="background:' + ls.defaultFill + '33;color:' + ls.defaultBorder + ';">' + escapeHtml(layerLabel) + '</div>' +
       '<div class="selected-name">' + escapeHtml(name) + '</div>' +
       (sub ? '<div class="selected-sub">' + escapeHtml(sub) + '</div>' : '') +
-      '<div class="selected-controls">' +
-        '<label>塗り色<input type="color" id="sel-fill" value="' + fill + '"></label>' +
-        '<label>枠色<input type="color" id="sel-border" value="' + border + '"></label>' +
-      '</div>' +
-      '<div class="opacity-row" style="margin-top:2px;"><span>枠太さ</span><input type="range" id="sel-weight" min="0.5" max="6" step="0.5" value="' + weight + '"><span class="opacity-val" id="sel-weight-val">' + weight + 'px</span></div>' +
+      '<div style="font-size:11px;color:var(--text-mute);margin:8px 0;">色・枠太さの個別調整、属性の確認は地図上のポップアップから行えます。</div>' +
       '<div class="selected-buttons">' +
-        '<button type="button" id="sel-apply">適用</button>' +
-        '<button type="button" id="sel-reset">既定に戻す</button>' +
         '<button type="button" id="sel-deselect">選択解除</button>' +
       '</div>';
 
-    const selWeightInput = document.getElementById('sel-weight');
-    const selWeightVal = document.getElementById('sel-weight-val');
-    selWeightInput.addEventListener('input', function (e) {
-      selWeightVal.textContent = e.target.value + 'px';
-    });
-
-    document.getElementById('sel-apply').addEventListener('click', function () {
-      const f = document.getElementById('sel-fill').value;
-      const b = document.getElementById('sel-border').value;
-      const w = Number(document.getElementById('sel-weight').value);
-      ls.overrides[selection.fid] = { fill: f, border: b, weight: w };
-      const lyr = ls.index[selection.fid];
-      if (lyr) lyr.setStyle(selectedStyleFor(ls, feature));
-    });
-    document.getElementById('sel-reset').addEventListener('click', function () {
-      delete ls.overrides[selection.fid];
-      const lyr = ls.index[selection.fid];
-      if (lyr) lyr.setStyle(selectedStyleFor(ls, feature));
-      renderSelectedCard();
-    });
     document.getElementById('sel-deselect').addEventListener('click', function () {
       deselectFeature();
     });
@@ -999,8 +1089,7 @@ const DATA_CHIKU = {
           '<div class="layer-title-wrap collapse-btn" data-target="section-' + ls.key + '">' +
             '<span class="chevron">▾</span>' +
             '<div class="layer-title">' +
-              '<span class="dot" style="background:' + ls.defaultFill + '"></span>' +
-              '🌾 <span class="layer-title-text" id="title-' + ls.key + '">' + escapeHtml(ls.title) + '</span>' +
+              '<span class="layer-title-text" id="title-' + ls.key + '">' + escapeHtml(ls.title) + '</span>' +
               '<button type="button" class="rename-btn" id="rename-' + ls.key + '" title="タイトルを変更">✎</button>' +
               '<span class="count">（' + ls.data.features.length + '件）</span>' +
             '</div>' +
