@@ -812,21 +812,37 @@ const DATA_CHIKU = {
     return { sha: file.sha, manifest: JSON.parse(b64DecodeUtf8(file.content)) };
   }
 
+  function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  // manifest.json はレイヤ追加・色変更・タイトル変更・表示名項目変更などのたびに
+  // 読み取り→書き換え→sha付きPUT で更新する。ほぼ同時に複数の変更が走ると
+  // GitHub側のshaがずれて409 Conflictになることがあるため、最新のmanifestを
+  // 取り直して自動的に数回まで再試行する。
   async function ghUpsertManifestEntry(ls) {
-    const cur = await ghGetManifest();
-    const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
-    filtered.push({
-      id: ls.id, title: ls.title, path: ls.path, nameProp: ls.nameProp,
-      defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
-      opacity: ls.opacity, weight: ls.weight, minZoom: ls.minZoom
-    });
-    const body = {
-      message: 'マニフェスト更新: ' + ls.title,
-      content: b64EncodeUtf8(JSON.stringify({ layers: filtered }, null, 2)),
-      branch: github.branch
-    };
-    if (cur.sha) body.sha = cur.sha;
-    await ghRequest('/contents/layers/manifest.json', { method: 'PUT', body: JSON.stringify(body) });
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const cur = await ghGetManifest();
+      const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
+      filtered.push({
+        id: ls.id, title: ls.title, path: ls.path, nameProp: ls.nameProp,
+        defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
+        opacity: ls.opacity, weight: ls.weight, minZoom: ls.minZoom
+      });
+      const body = {
+        message: 'マニフェスト更新: ' + ls.title,
+        content: b64EncodeUtf8(JSON.stringify({ layers: filtered }, null, 2)),
+        branch: github.branch
+      };
+      if (cur.sha) body.sha = cur.sha;
+      try {
+        await ghRequest('/contents/layers/manifest.json', { method: 'PUT', body: JSON.stringify(body) });
+        return;
+      } catch (e) {
+        const isConflict = e.status === 409;
+        if (!isConflict || attempt === maxAttempts) throw e;
+        await wait(200 * attempt);
+      }
+    }
   }
 
   function setGhStatus(msg, kind) {
