@@ -125,6 +125,7 @@
   .feature-popup .leaflet-popup-content { margin:9px 12px; font-size:11px; color:var(--text); }
   .feature-popup .leaflet-popup-tip { box-shadow:0 2px 6px rgba(0,0,0,0.15); }
   .popup-attr-wrap { max-height:160px; overflow-y:auto; margin-bottom:8px; border-bottom:1px solid var(--border-soft); padding-bottom:6px; }
+  .popup-heading { font-size:14px; font-weight:700; color:var(--text); margin:0 0 6px; padding-bottom:4px; border-bottom:1px solid var(--border-soft); }
   .popup-attr-table { border-collapse:collapse; font-size:10.5px; width:100%; }
   .popup-attr-table th { text-align:left; color:var(--text-mute); font-weight:600; padding:1px 8px 1px 0; vertical-align:top; white-space:nowrap; }
   .popup-attr-table td { padding:1px 0; word-break:break-all; }
@@ -286,22 +287,11 @@ const DATA_CHIKU = {
   const fieldRenderer = L.canvas({ pane: 'fieldPane' });
   function rendererFor(ls) { return ls.custom ? fieldRenderer : boundaryRenderer; }
 
-  const tileOptions = { maxZoom: 18 };
-
-  const std = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', Object.assign({
-    attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
-  }, tileOptions)).addTo(map);
-
-  const air = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', Object.assign({
-    attribution: '写真: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
-  }, tileOptions));
-
-  L.control.layers({ '白地図（標準地図）': std, '航空写真': air }, {}, { collapsed: false, position: 'topright' }).addTo(map);
-
   // ---------------------------------------------------------------------
   // ローカルUI状態（このブラウザだけの記憶）: レイヤパネルの開閉状態、
   // 支所・地区レイヤ（GitHub非対応の組み込みレイヤ）の色・透明度・枠太さ・
-  // 塗り/枠のON/OFFを localStorage に保存し、次回開いたときに復元する。
+  // 塗り/枠のON/OFF・表示/非表示、背景地図（白地図/航空写真）の選択を
+  // localStorage に保存し、次回開いたときに復元する。
   // 圃場レイヤ（custom）は既存どおり GitHub の manifest.json 側で共有される。
   // ---------------------------------------------------------------------
   const UI_STATE_KEY = 'chibaGuideMapUiState';
@@ -324,6 +314,7 @@ const DATA_CHIKU = {
       if (saved.weight != null) ls.weight = saved.weight;
       if (saved.fillEnabled != null) ls.fillEnabled = saved.fillEnabled;
       if (saved.strokeEnabled != null) ls.strokeEnabled = saved.strokeEnabled;
+      if (saved.visible != null) ls.visible = saved.visible;
     }
   }
 
@@ -331,7 +322,8 @@ const DATA_CHIKU = {
     uiState.layerStyle[key] = {
       defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
       opacity: ls.opacity, weight: ls.weight,
-      fillEnabled: ls.fillEnabled, strokeEnabled: ls.strokeEnabled
+      fillEnabled: ls.fillEnabled, strokeEnabled: ls.strokeEnabled,
+      visible: ls.visible
     };
     saveUiState();
   }
@@ -357,6 +349,7 @@ const DATA_CHIKU = {
     const weightVal = document.getElementById('weight-' + prefix + '-val');
     const fillOnInput = document.getElementById('fillon-' + prefix);
     const borderOnInput = document.getElementById('borderon-' + prefix);
+    const visInput = document.getElementById('vis-' + prefix);
     if (fillInput) fillInput.value = ls.defaultFill;
     if (borderInput) borderInput.value = ls.defaultBorder;
     if (opacityInput) opacityInput.value = Math.round(ls.opacity * 100);
@@ -365,7 +358,26 @@ const DATA_CHIKU = {
     if (weightVal) weightVal.textContent = ls.weight + 'px';
     if (fillOnInput) fillOnInput.checked = ls.fillEnabled !== false;
     if (borderOnInput) borderOnInput.checked = ls.strokeEnabled !== false;
+    if (visInput) visInput.checked = ls.visible !== false;
   }
+
+  const tileOptions = { maxZoom: 18 };
+
+  const std = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', Object.assign({
+    attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
+  }, tileOptions));
+
+  const air = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', Object.assign({
+    attribution: '写真: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'
+  }, tileOptions));
+
+  // 背景地図（白地図/航空写真）の選択もこのブラウザに記憶し、次回開いたときに復元する。
+  (uiState.basemap === 'air' ? air : std).addTo(map);
+  L.control.layers({ '白地図（標準地図）': std, '航空写真': air }, {}, { collapsed: false, position: 'topright' }).addTo(map);
+  map.on('baselayerchange', function (e) {
+    uiState.basemap = (e.layer === air) ? 'air' : 'std';
+    saveUiState();
+  });
 
   const layers = {
     shisho: {
@@ -391,7 +403,7 @@ const DATA_CHIKU = {
       defaultFill: opts.defaultFill, defaultBorder: opts.defaultBorder,
       opacity: opts.opacity, weight: opts.weight,
       fillEnabled: opts.fillEnabled !== false, strokeEnabled: opts.strokeEnabled !== false,
-      dynamic: true, visible: true, minZoom: opts.minZoom, custom: true,
+      dynamic: true, visible: opts.visible !== false, minZoom: opts.minZoom, custom: true,
       geo: null, index: {}, featureByFid: {}, bboxByFid: {}, overrides: {},
       id: opts.id, path: opts.path, sha: opts.sha || null
     };
@@ -448,7 +460,13 @@ const DATA_CHIKU = {
     const wrap = document.createElement('div');
 
     const props = feature.properties || {};
-    const keys = Object.keys(props);
+    if (ls.nameProp && props[ls.nameProp] != null && String(props[ls.nameProp]) !== '') {
+      const heading = document.createElement('div');
+      heading.className = 'popup-heading';
+      heading.textContent = String(props[ls.nameProp]);
+      wrap.appendChild(heading);
+    }
+    const keys = Object.keys(props).filter(function (k) { return k !== ls.nameProp; });
     if (keys.length) {
       const tableWrap = document.createElement('div');
       tableWrap.className = 'popup-attr-wrap';
@@ -559,7 +577,8 @@ const DATA_CHIKU = {
         ls.featureByFid[fid] = feature;
         bindFeatureInteractions(ls, feature, lyr);
       }
-    }).addTo(map);
+    });
+    if (ls.visible) ls.geo.addTo(map);
     ls.data.features.forEach(function (ft) { ft.geometry = null; });
   }
 
@@ -747,6 +766,7 @@ const DATA_CHIKU = {
       } else {
         map.removeLayer(ls.geo);
       }
+      persistLayerStyle(ls);
     });
 
     // 現在のls（塗り/枠色、透明度、枠太さ、塗り/枠ON-OFF、個別上書き）に基づいて
@@ -1024,7 +1044,7 @@ const DATA_CHIKU = {
         id: ls.id, title: ls.title, path: ls.path, nameProp: ls.nameProp,
         defaultFill: ls.defaultFill, defaultBorder: ls.defaultBorder,
         opacity: ls.opacity, weight: ls.weight, minZoom: ls.minZoom,
-        fillEnabled: ls.fillEnabled, strokeEnabled: ls.strokeEnabled
+        fillEnabled: ls.fillEnabled, strokeEnabled: ls.strokeEnabled, visible: ls.visible
       });
       const body = {
         message: 'マニフェスト更新: ' + ls.title,
@@ -1094,7 +1114,7 @@ const DATA_CHIKU = {
               '<span class="count">（' + ls.data.features.length + '件）</span>' +
             '</div>' +
           '</div>' +
-          '<label class="switch"><input type="checkbox" id="vis-' + ls.key + '" checked><span class="slider-switch"></span></label>' +
+          '<label class="switch"><input type="checkbox" id="vis-' + ls.key + '"' + (ls.visible !== false ? ' checked' : '') + '><span class="slider-switch"></span></label>' +
         '</div>' +
         '<div class="section-body">' +
           '<div class="bulk-controls">' +
@@ -1189,7 +1209,7 @@ const DATA_CHIKU = {
           nameProp: entry.nameProp || guessNameProp(features),
           defaultFill: entry.defaultFill || '#e65100', defaultBorder: entry.defaultBorder || '#8d3f00',
           opacity: entry.opacity != null ? entry.opacity : 0.5, weight: entry.weight || 1.5,
-          fillEnabled: entry.fillEnabled, strokeEnabled: entry.strokeEnabled,
+          fillEnabled: entry.fillEnabled, strokeEnabled: entry.strokeEnabled, visible: entry.visible,
           minZoom: entry.minZoom != null ? entry.minZoom : 12,
           id: entry.id, path: entry.path, sha: file.sha
         });
