@@ -1055,7 +1055,7 @@ const DATA_CHIKU = {
   // GitHub側のshaがずれて409 Conflictになることがあるため、最新のmanifestを
   // 取り直して自動的に数回まで再試行する。
   async function ghUpsertManifestEntry(ls) {
-    const maxAttempts = 5;
+    const maxAttempts = 6;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const cur = await ghGetManifest();
       const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
@@ -1077,7 +1077,7 @@ const DATA_CHIKU = {
       } catch (e) {
         const isConflict = e.status === 409;
         if (!isConflict || attempt === maxAttempts) throw e;
-        await wait(200 * attempt);
+        await wait(600 * attempt);
       }
     }
   }
@@ -1091,7 +1091,7 @@ const DATA_CHIKU = {
   // manifest.json から該当レイヤのエントリだけを取り除いて保存する。
   // 409（同時編集の競合）の場合は最新を取り直して自動的に再試行する。
   async function ghDeleteManifestEntry(ls) {
-    const maxAttempts = 5;
+    const maxAttempts = 6;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const cur = await ghGetManifest();
       const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
@@ -1107,7 +1107,7 @@ const DATA_CHIKU = {
       } catch (e) {
         const isConflict = e.status === 409;
         if (!isConflict || attempt === maxAttempts) throw e;
-        await wait(200 * attempt);
+        await wait(600 * attempt);
       }
     }
   }
