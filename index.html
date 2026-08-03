@@ -346,7 +346,10 @@ const DATA_CHIKU = {
     if (ls.custom) {
       if (github.connected) {
         runGhOperation('「' + ls.title + '」を保存中…', function () { return ghUpsertManifestEntry(ls); })
-          .catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+          .catch(function (e) {
+            console.error('マニフェスト更新に失敗しました', e);
+            setAddStatus('「' + ls.title + '」の保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
+          });
       }
     } else {
       saveBuiltinStyle(ls.key, ls);
@@ -857,7 +860,10 @@ const DATA_CHIKU = {
     input.addEventListener('change', function () {
       if (github.connected) {
         runGhOperation('「' + ls.title + '」を保存中…', function () { return ghUpsertManifestEntry(ls); })
-          .catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+          .catch(function (e) {
+            console.error('マニフェスト更新に失敗しました', e);
+            setAddStatus('「' + ls.title + '」の保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
+          });
       }
     });
   }
@@ -933,7 +939,10 @@ const DATA_CHIKU = {
       if (selection.key === ls.key) renderSelectedCard();
       if (github.connected) {
         runGhOperation('「' + ls.title + '」を保存中…', function () { return ghUpsertManifestEntry(ls); })
-          .catch(function (e) { console.error('マニフェスト更新に失敗しました', e); });
+          .catch(function (e) {
+            console.error('マニフェスト更新に失敗しました', e);
+            setAddStatus('「' + ls.title + '」の保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
+          });
       }
     });
   }
@@ -1155,7 +1164,7 @@ const DATA_CHIKU = {
   }
 
   async function ghUpsertManifestEntryRaw(ls) {
-    const maxAttempts = 6;
+    const maxAttempts = 8;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const cur = await ghGetManifest();
       const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
@@ -1177,7 +1186,7 @@ const DATA_CHIKU = {
       } catch (e) {
         const isConflict = e.status === 409;
         if (!isConflict || attempt === maxAttempts) throw e;
-        await wait(600 * attempt);
+        await wait(500 * attempt);
       }
     }
   }
@@ -1195,7 +1204,7 @@ const DATA_CHIKU = {
   }
 
   async function ghDeleteManifestEntryRaw(ls) {
-    const maxAttempts = 6;
+    const maxAttempts = 8;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const cur = await ghGetManifest();
       const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
@@ -1211,7 +1220,7 @@ const DATA_CHIKU = {
       } catch (e) {
         const isConflict = e.status === 409;
         if (!isConflict || attempt === maxAttempts) throw e;
-        await wait(600 * attempt);
+        await wait(500 * attempt);
       }
     }
   }
