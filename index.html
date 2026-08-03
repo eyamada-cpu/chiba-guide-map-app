@@ -141,6 +141,8 @@
 
   .rename-btn { background:none; border:none; cursor:pointer; font-size:12px; color:var(--text-mute); padding:2px 5px; border-radius:5px; }
   .rename-btn:hover { background:#e7ebec; color:var(--text); }
+  .delete-btn { background:none; border:none; cursor:pointer; font-size:12px; color:var(--text-mute); padding:2px 5px; border-radius:5px; }
+  .delete-btn:hover { background:#fbe4e0; color:#c0392b; }
   .section.custom { border-top-width:4px; border-top-style:solid; }
   .add-layer-card { text-align:center; border:1.5px dashed #c6d0d2; background:#fbfdfd; }
   .add-layer-card .layer-title { justify-content:center; margin-bottom:4px; }
@@ -172,12 +174,6 @@
 <div id="loading"><div class="spinner"></div><div>地図データを読み込み中です…</div></div>
 <div id="app">
   <div id="panel">
-    <div class="hint-card">💡 地図上、または下のリストからポリゴンを選ぶと選択中のポリゴンが一瞬点滅し、上のカードで個別の色を変更できます。</div>
-
-    <div class="selected-card" id="selected-card">
-      <div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>
-    </div>
-
     <div class="section shisho" id="section-shisho">
       <div class="layer-header">
         <div class="layer-title-wrap collapse-btn" data-target="section-shisho">
@@ -693,6 +689,10 @@ const DATA_CHIKU = {
   }
 
   function selectFeature(layerKey, fid) {
+    if (selection.key === layerKey && selection.fid === fid) {
+      deselectFeature();
+      return;
+    }
     const ls = layers[layerKey];
     const feature = ls.featureByFid[fid];
     const lyr = ls.index[fid];
@@ -723,31 +723,9 @@ const DATA_CHIKU = {
     refreshAllViewports();
   }
 
-  function renderSelectedCard() {
-    const card = document.getElementById('selected-card');
-    if (!selection.key || !layers[selection.key]) {
-      card.innerHTML = '<div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>';
-      return;
-    }
-    const ls = layers[selection.key];
-    const feature = ls.featureByFid[selection.fid];
-    if (!feature) { card.innerHTML = '<div class="selected-empty">🖱️ ポリゴンを選択するとここに詳細が表示されます</div>'; return; }
-    const name = (ls.nameProp && feature.properties[ls.nameProp]) || '(名称なし)';
-    const sub = ls.subProp ? feature.properties[ls.subProp] : null;
-    const layerLabel = ls.custom ? ls.title : (ls.key === 'shisho' ? '支所' : '地区');
-    card.innerHTML =
-      '<div class="selected-badge" style="background:' + ls.defaultFill + '33;color:' + ls.defaultBorder + ';">' + escapeHtml(layerLabel) + '</div>' +
-      '<div class="selected-name">' + escapeHtml(name) + '</div>' +
-      (sub ? '<div class="selected-sub">' + escapeHtml(sub) + '</div>' : '') +
-      '<div style="font-size:11px;color:var(--text-mute);margin:8px 0;">色・枠太さの個別調整、属性の確認は地図上のポップアップから行えます。</div>' +
-      '<div class="selected-buttons">' +
-        '<button type="button" id="sel-deselect">選択解除</button>' +
-      '</div>';
-
-    document.getElementById('sel-deselect').addEventListener('click', function () {
-      deselectFeature();
-    });
-  }
+  // 選択中ポリゴンの詳細パネルはレイヤパネル上には表示しない方針のため、
+  // このフック自体は残しつつ何もしない（呼び出し側の分岐を単純に保つための no-op）。
+  function renderSelectedCard() {}
 
   function wireLayerControls(ls, prefix) {
     document.getElementById('vis-' + prefix).addEventListener('change', function (e) {
@@ -881,6 +859,47 @@ const DATA_CHIKU = {
       if (github.connected) {
         ghUpsertManifestEntry(ls).catch(function (e) { alert('GitHubへのタイトル更新に失敗しました: ' + e.message); });
       }
+    });
+  }
+
+  // 圃場レイヤを地図・パネル・（接続時は）GitHubから完全に削除する。
+  async function deleteCustomLayer(ls) {
+    if (!window.confirm('「' + ls.title + '」を削除します。この操作は元に戻せません。よろしいですか？')) return;
+
+    if (ls.dynamic) {
+      Object.keys(ls.index).forEach(function (fid) { map.removeLayer(ls.index[fid]); });
+    } else if (ls.geo) {
+      map.removeLayer(ls.geo);
+    }
+    if (selection.key === ls.key) selection = { key: null, fid: null };
+    delete layers[ls.key];
+    const section = document.getElementById('section-' + ls.key);
+    if (section) section.remove();
+
+    if (github.connected) {
+      setAddStatus('「' + ls.title + '」をGitHubから削除中…', 'pending');
+      try {
+        try {
+          const fresh = await ghGetFile(ls.path);
+          if (fresh) await ghDeleteFile(ls.path, '圃場レイヤ削除: ' + ls.title, fresh.sha);
+        } catch (e) {
+          if (e.status !== 404) throw e;
+        }
+        await ghDeleteManifestEntry(ls);
+        setAddStatus('「' + ls.title + '」を削除しました', 'ok');
+      } catch (e) {
+        setAddStatus('GitHubからの削除に失敗しました: ' + e.message, 'error');
+      }
+    } else {
+      setAddStatus('「' + ls.title + '」をこの端末から削除しました', 'warn');
+    }
+  }
+
+  function wireDeleteButton(ls) {
+    const btn = document.getElementById('delete-' + ls.key);
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      deleteCustomLayer(ls).catch(function (e) { alert('削除に失敗しました: ' + e.message); });
     });
   }
 
@@ -1063,6 +1082,36 @@ const DATA_CHIKU = {
     }
   }
 
+  // 圃場レイヤの本体（GeoJSONファイル）をGitHubから削除する。
+  async function ghDeleteFile(path, message, sha) {
+    const body = { message: message, sha: sha, branch: github.branch };
+    return await ghRequest('/contents/' + path, { method: 'DELETE', body: JSON.stringify(body) });
+  }
+
+  // manifest.json から該当レイヤのエントリだけを取り除いて保存する。
+  // 409（同時編集の競合）の場合は最新を取り直して自動的に再試行する。
+  async function ghDeleteManifestEntry(ls) {
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const cur = await ghGetManifest();
+      const filtered = (cur.manifest.layers || []).filter(function (e) { return e.id !== ls.id; });
+      const body = {
+        message: 'マニフェストから削除: ' + ls.title,
+        content: b64EncodeUtf8(JSON.stringify({ layers: filtered }, null, 2)),
+        branch: github.branch
+      };
+      if (cur.sha) body.sha = cur.sha;
+      try {
+        await ghRequest('/contents/layers/manifest.json', { method: 'PUT', body: JSON.stringify(body) });
+        return;
+      } catch (e) {
+        const isConflict = e.status === 409;
+        if (!isConflict || attempt === maxAttempts) throw e;
+        await wait(200 * attempt);
+      }
+    }
+  }
+
   function setGhStatus(msg, kind) {
     const el = document.getElementById('gh-status');
     el.textContent = msg;
@@ -1111,6 +1160,7 @@ const DATA_CHIKU = {
             '<div class="layer-title">' +
               '<span class="layer-title-text" id="title-' + ls.key + '">' + escapeHtml(ls.title) + '</span>' +
               '<button type="button" class="rename-btn" id="rename-' + ls.key + '" title="タイトルを変更">✎</button>' +
+              '<button type="button" class="delete-btn" id="delete-' + ls.key + '" title="レイヤを削除">🗑</button>' +
               '<span class="count">（' + ls.data.features.length + '件）</span>' +
             '</div>' +
           '</div>' +
@@ -1137,6 +1187,7 @@ const DATA_CHIKU = {
     wireLayerControls(ls, ls.key);
     wireMinZoomControl(ls);
     wireRenameButton(ls);
+    wireDeleteButton(ls);
     wireNamePropSelect(ls);
     wireCollapseButton(section);
 
