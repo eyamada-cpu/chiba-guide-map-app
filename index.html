@@ -152,6 +152,8 @@
   .rename-btn:hover { background:#e7ebec; color:var(--text); }
   .delete-btn { background:none; border:none; cursor:pointer; font-size:12px; color:var(--text-mute); padding:2px 5px; border-radius:5px; }
   .delete-btn:hover { background:#fbe4e0; color:#c0392b; }
+  .retry-btn { background:#fdecea; border:none; cursor:pointer; font-size:10.5px; color:#c0392b; padding:2px 7px; border-radius:10px; font-weight:700; }
+  .retry-btn:hover { background:#f8d3ce; }
   .section.custom { border-top-width:4px; border-top-style:solid; }
   .add-layer-card { text-align:center; border:1.5px dashed #c6d0d2; background:#fbfdfd; }
   .add-layer-card .layer-title { justify-content:center; margin-bottom:4px; }
@@ -346,8 +348,10 @@ const DATA_CHIKU = {
     if (ls.custom) {
       if (github.connected) {
         runGhOperation('「' + ls.title + '」を保存中…', function () { return ghUpsertManifestEntry(ls); })
+          .then(function () { setLayerSyncFailed(ls, false); })
           .catch(function (e) {
             console.error('マニフェスト更新に失敗しました', e);
+            setLayerSyncFailed(ls, true);
             setAddStatus('「' + ls.title + '」の保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
           });
       }
@@ -860,11 +864,39 @@ const DATA_CHIKU = {
     input.addEventListener('change', function () {
       if (github.connected) {
         runGhOperation('「' + ls.title + '」を保存中…', function () { return ghUpsertManifestEntry(ls); })
+          .then(function () { setLayerSyncFailed(ls, false); })
           .catch(function (e) {
             console.error('マニフェスト更新に失敗しました', e);
+            setLayerSyncFailed(ls, true);
             setAddStatus('「' + ls.title + '」の保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
           });
       }
+    });
+  }
+
+  // 保存に失敗したレイヤには「⚠ 再試行」ボタンを表示し、どの操作が失敗した
+  // 場合でも、そのレイヤの現在の状態（色・タイトル・表示名項目など全部）を
+  // まとめてもう一度保存し直せるようにする。
+  function setLayerSyncFailed(ls, failed) {
+    ls.pendingSync = !!failed;
+    const btn = document.getElementById('retry-' + ls.key);
+    if (btn) btn.style.display = failed ? 'inline-block' : 'none';
+  }
+
+  function wireRetryButton(ls) {
+    const btn = document.getElementById('retry-' + ls.key);
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      if (!github.connected) return;
+      runGhOperation('「' + ls.title + '」を再保存中…', function () { return ghUpsertManifestEntry(ls); })
+        .then(function () {
+          setLayerSyncFailed(ls, false);
+          setAddStatus('「' + ls.title + '」を再保存しました', 'ok');
+        })
+        .catch(function (e) {
+          setLayerSyncFailed(ls, true);
+          setAddStatus('「' + ls.title + '」の再保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
+        });
     });
   }
 
@@ -875,14 +907,20 @@ const DATA_CHIKU = {
       const input = window.prompt('新しいレイヤ名を入力してください', ls.title);
       if (input == null) return;
       const trimmed = input.trim();
-      if (!trimmed || trimmed === ls.title) return;
+      // 前回の保存が失敗して再送待ち（pendingSync）の場合は、同じ名前を入力し
+      // 直しても再送できるようにスキップしない。
+      if (!trimmed || (trimmed === ls.title && !ls.pendingSync)) return;
       ls.title = trimmed;
       const titleEl = document.getElementById('title-' + ls.key);
       if (titleEl) titleEl.textContent = ls.title;
       if (selection.key === ls.key) renderSelectedCard();
       if (github.connected) {
         runGhOperation('「' + ls.title + '」のタイトルを更新中…', function () { return ghUpsertManifestEntry(ls); })
-          .catch(function (e) { alert('GitHubへのタイトル更新に失敗しました: ' + e.message); });
+          .then(function () { setLayerSyncFailed(ls, false); })
+          .catch(function (e) {
+            setLayerSyncFailed(ls, true);
+            alert('GitHubへのタイトル更新に失敗しました: ' + e.message);
+          });
       }
     });
   }
@@ -939,8 +977,10 @@ const DATA_CHIKU = {
       if (selection.key === ls.key) renderSelectedCard();
       if (github.connected) {
         runGhOperation('「' + ls.title + '」を保存中…', function () { return ghUpsertManifestEntry(ls); })
+          .then(function () { setLayerSyncFailed(ls, false); })
           .catch(function (e) {
             console.error('マニフェスト更新に失敗しました', e);
+            setLayerSyncFailed(ls, true);
             setAddStatus('「' + ls.title + '」の保存に失敗しました。もう一度お試しください（' + e.message + '）', 'error');
           });
       }
@@ -1291,6 +1331,7 @@ const DATA_CHIKU = {
               '<span class="layer-title-text" id="title-' + ls.key + '">' + escapeHtml(ls.title) + '</span>' +
               '<button type="button" class="rename-btn" id="rename-' + ls.key + '" title="タイトルを変更">✎</button>' +
               '<button type="button" class="delete-btn" id="delete-' + ls.key + '" title="レイヤを削除">🗑</button>' +
+              '<button type="button" class="retry-btn" id="retry-' + ls.key + '" title="GitHubへの保存に失敗しています。クリックして再試行" style="display:none;">⚠ 再試行</button>' +
               '<span class="count">（' + ls.data.features.length + '件）</span>' +
             '</div>' +
           '</div>' +
@@ -1318,6 +1359,7 @@ const DATA_CHIKU = {
     wireMinZoomControl(ls);
     wireRenameButton(ls);
     wireDeleteButton(ls);
+    wireRetryButton(ls);
     wireNamePropSelect(ls);
     wireCollapseButton(section);
 
