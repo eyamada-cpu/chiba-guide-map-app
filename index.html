@@ -154,6 +154,9 @@
   .add-layer-status.error { color:#c62828; }
   .add-layer-status.warn { color:#b06a00; }
   .add-layer-status.pending { color:var(--text-mute); }
+  .add-layer-progress-wrap { margin-top:8px; display:none; }
+  .add-layer-progress-bar { width:100%; height:6px; background:var(--border-soft); border-radius:4px; overflow:hidden; }
+  .add-layer-progress-fill { height:100%; width:0%; background:var(--primary); transition:width .2s ease; }
 </style>
 </head>
 <body>
@@ -223,6 +226,9 @@
       <input type="file" id="add-layer-file" accept=".geojson,.json,application/geo+json,application/json">
       <button type="button" class="add-layer-btn" id="add-layer-btn">GeoJSONファイルを選択</button>
       <div class="add-layer-status" id="add-layer-status">GitHubに接続すると、追加したレイヤはチームで共有されます。</div>
+      <div class="add-layer-progress-wrap" id="add-layer-progress-wrap">
+        <div class="add-layer-progress-bar"><div class="add-layer-progress-fill" id="add-layer-progress-fill"></div></div>
+      </div>
     </div>
 
     <div id="custom-layers-container"></div>
@@ -1037,8 +1043,42 @@ const DATA_CHIKU = {
     return await ghRequest('/contents/' + path, { method: 'PUT', body: JSON.stringify(body) });
   }
 
-  async function ghSaveLayer(ls) {
-    const res = await ghPutFile(ls.path, ls.data, (ls.sha ? '圃場レイヤ更新: ' : '圃場レイヤ追加: ') + ls.title, ls.sha);
+  // GeoJSONの内容によっては送信データが数MB〜十数MBになることがあり、その間
+  // ステータスが「保存中…」のまま止まって見えると不安になるため、実際のアップロード
+  // バイト数から進捗率を計算できるXMLHttpRequestを使う（fetchにはアップロード進捗が無い）。
+  function xhrPutFile(path, contentObj, message, sha, onProgress) {
+    return new Promise(function (resolve, reject) {
+      const body = { message: message, content: b64EncodeUtf8(JSON.stringify(contentObj, null, 2)), branch: github.branch };
+      if (sha) body.sha = sha;
+      const xhr = new XMLHttpRequest();
+      const url = 'https://api.github.com/repos/' + encodeURIComponent(github.owner) + '/' + encodeURIComponent(github.repo) + '/contents/' + path;
+      xhr.open('PUT', url);
+      xhr.setRequestHeader('Authorization', 'token ' + github.token);
+      xhr.setRequestHeader('Accept', 'application/vnd.github+json');
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable) onProgress(e.loaded / e.total);
+        };
+      }
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch (e) { resolve(null); }
+        } else {
+          let detail = '';
+          try { detail = JSON.parse(xhr.responseText).message || ''; } catch (e) {}
+          const err = new Error('HTTP ' + xhr.status + (detail ? (': ' + detail) : ''));
+          err.status = xhr.status;
+          reject(err);
+        }
+      };
+      xhr.onerror = function () { reject(new Error('ネットワークエラー')); };
+      xhr.send(JSON.stringify(body));
+    });
+  }
+
+  async function ghSaveLayer(ls, onProgress) {
+    const res = await xhrPutFile(ls.path, ls.data, (ls.sha ? '圃場レイヤ更新: ' : '圃場レイヤ追加: ') + ls.title, ls.sha, onProgress);
     ls.sha = res.content.sha;
   }
 
@@ -1140,6 +1180,23 @@ const DATA_CHIKU = {
     const el = document.getElementById('add-layer-status');
     el.textContent = msg;
     el.className = 'add-layer-status' + (kind ? (' ' + kind) : '');
+  }
+
+  // 圃場レイヤ追加の進行状況（読み込み→解析→GitHubアップロード→マニフェスト更新）を
+  // 見た目のバーで示す。アップロード部分は実際の送信バイト数から算出した実測の進捗。
+  function showAddProgress() {
+    const wrap = document.getElementById('add-layer-progress-wrap');
+    if (wrap) wrap.style.display = 'block';
+    setAddProgress(0);
+  }
+  function setAddProgress(pct) {
+    const fill = document.getElementById('add-layer-progress-fill');
+    if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+  function hideAddProgress() {
+    const wrap = document.getElementById('add-layer-progress-wrap');
+    if (wrap) wrap.style.display = 'none';
+    setAddProgress(0);
   }
 
   function collectPropertyKeys(features) {
@@ -1244,15 +1301,26 @@ const DATA_CHIKU = {
     refreshViewport(ls);
 
     if (github.connected) {
-      setAddStatus('「' + ls.title + '」をGitHubに保存中…', 'pending');
+      setAddProgress(35);
+      setAddStatus('「' + ls.title + '」をGitHubにアップロード中…（0%）', 'pending');
       try {
-        await ghSaveLayer(ls);
+        await ghSaveLayer(ls, function (frac) {
+          const pct = Math.round(frac * 100);
+          setAddProgress(35 + frac * 50);
+          setAddStatus('「' + ls.title + '」をGitHubにアップロード中…（' + pct + '%）', 'pending');
+        });
+        setAddProgress(90);
+        setAddStatus('「' + ls.title + '」のマニフェストを更新中…', 'pending');
         await ghUpsertManifestEntry(ls);
+        setAddProgress(100);
         setAddStatus('「' + ls.title + '」を追加し、GitHubに保存しました', 'ok');
+        setTimeout(hideAddProgress, 1200);
       } catch (e) {
+        hideAddProgress();
         setAddStatus('GitHubへの保存に失敗しました: ' + e.message, 'error');
       }
     } else {
+      hideAddProgress();
       setAddStatus('「' + ls.title + '」をこの端末に追加しました（GitHub未接続のため他の人とは共有されません）', 'warn');
     }
   }
@@ -1332,14 +1400,22 @@ const DATA_CHIKU = {
   document.getElementById('add-layer-file').addEventListener('change', function (e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    setAddStatus('読み込み中…', 'pending');
+    showAddProgress();
+    setAddProgress(5);
+    setAddStatus('ファイルを読み込み中…', 'pending');
     const reader = new FileReader();
+    reader.onprogress = function (evt) {
+      if (evt.lengthComputable) setAddProgress(5 + (evt.loaded / evt.total) * 15);
+    };
     reader.onload = function () {
+      setAddProgress(20);
+      setAddStatus('GeoJSONを解析中…', 'pending');
       let geojson;
-      try { geojson = JSON.parse(reader.result); } catch (err) { setAddStatus('GeoJSONの解析に失敗しました: ' + err.message, 'error'); return; }
+      try { geojson = JSON.parse(reader.result); } catch (err) { hideAddProgress(); setAddStatus('GeoJSONの解析に失敗しました: ' + err.message, 'error'); return; }
+      setAddProgress(30);
       createCustomLayer(geojson, file.name.replace(/\.(geo)?json$/i, ''));
     };
-    reader.onerror = function () { setAddStatus('ファイルの読み込みに失敗しました', 'error'); };
+    reader.onerror = function () { hideAddProgress(); setAddStatus('ファイルの読み込みに失敗しました', 'error'); };
     reader.readAsText(file);
     e.target.value = '';
   });
