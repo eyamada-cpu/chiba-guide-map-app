@@ -1050,11 +1050,25 @@ const DATA_CHIKU = {
 
   function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
+  // manifest.jsonへの書き込みは全レイヤ共通で1つのファイルを取り合うため、
+  // 同じブラウザ内で連続して発生した変更同士が競合しないよう、常に1件ずつ
+  // 順番に実行されるようキューで直列化する。
+  let ghManifestQueue = Promise.resolve();
+  function queueManifestWrite(fn) {
+    const run = ghManifestQueue.then(fn, fn);
+    ghManifestQueue = run.then(function () {}, function () {});
+    return run;
+  }
+
   // manifest.json はレイヤ追加・色変更・タイトル変更・表示名項目変更などのたびに
   // 読み取り→書き換え→sha付きPUT で更新する。ほぼ同時に複数の変更が走ると
   // GitHub側のshaがずれて409 Conflictになることがあるため、最新のmanifestを
   // 取り直して自動的に数回まで再試行する。
   async function ghUpsertManifestEntry(ls) {
+    return queueManifestWrite(function () { return ghUpsertManifestEntryRaw(ls); });
+  }
+
+  async function ghUpsertManifestEntryRaw(ls) {
     const maxAttempts = 6;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const cur = await ghGetManifest();
@@ -1091,6 +1105,10 @@ const DATA_CHIKU = {
   // manifest.json から該当レイヤのエントリだけを取り除いて保存する。
   // 409（同時編集の競合）の場合は最新を取り直して自動的に再試行する。
   async function ghDeleteManifestEntry(ls) {
+    return queueManifestWrite(function () { return ghDeleteManifestEntryRaw(ls); });
+  }
+
+  async function ghDeleteManifestEntryRaw(ls) {
     const maxAttempts = 6;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const cur = await ghGetManifest();
