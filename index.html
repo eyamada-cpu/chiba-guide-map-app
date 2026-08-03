@@ -277,6 +277,22 @@ const DATA_CHIKU = {
     });
   }
 
+  // 色ピッカーのドラッグ中は 'input' イベントが1フレームに何度も発生しうる。
+  // ポリゴンの塗り直しは決して軽くない処理なので、フレームごとに最大1回だけ
+  // （最後の値で）実行されるようスロットルし、操作をなめらかに保つ。
+  function rafThrottle(fn) {
+    let scheduled = false;
+    return function () {
+      const ctx = this, args = arguments;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(function () {
+        scheduled = false;
+        fn.apply(ctx, args);
+      });
+    };
+  }
+
   // Zoom/wheel/tile tuning tried earlier (zoomSnap:0, custom wheel timing,
   // updateWhenZooming:false, keepBuffer bump) did not fix the stutter, and since it
   // persisted even with both data layers hidden, the cause was never simply "too much
@@ -552,11 +568,11 @@ const DATA_CHIKU = {
       ls.overrides[fid] = { fill: fillInput.value, border: borderInput.value, weight: Number(weightInput.value) };
       weightVal.textContent = weightInput.value + 'px';
       lyr.setStyle(selectedStyleFor(ls, feature));
-      refreshList(ls, ls.key);
     }
-    fillInput.addEventListener('input', applyLive);
-    borderInput.addEventListener('input', applyLive);
-    weightInput.addEventListener('input', applyLive);
+    const throttledApplyLive = rafThrottle(applyLive);
+    fillInput.addEventListener('input', throttledApplyLive);
+    borderInput.addEventListener('input', throttledApplyLive);
+    weightInput.addEventListener('input', throttledApplyLive);
 
     const btnRow = document.createElement('div');
     btnRow.className = 'popup-btn-row';
@@ -796,13 +812,15 @@ const DATA_CHIKU = {
       ls.defaultBorder = borderInput.value;
       ls.overrides = {};
       restyleAll();
-      refreshList(ls, prefix);
     }
     // 「レイヤ全体に適用」ボタンを押さなくても、色を選んだ瞬間（input）に
     // その場で反映される。change（選択確定・ピッカーを閉じたタイミング）で
-    // GitHub／localStorageへの保存を行う。
-    fillInput.addEventListener('input', applyBulkColors);
-    borderInput.addEventListener('input', applyBulkColors);
+    // GitHub／localStorageへの保存を行う。ドラッグ中は1フレームに何度も
+    // 発火しうるため、塗り直しは1フレームにつき最大1回にスロットルする
+    // （名称一覧はここでは変わらないので毎回作り直す必要はない）。
+    const throttledApplyBulkColors = rafThrottle(applyBulkColors);
+    fillInput.addEventListener('input', throttledApplyBulkColors);
+    borderInput.addEventListener('input', throttledApplyBulkColors);
     fillInput.addEventListener('change', function () { persistLayerStyle(ls); });
     borderInput.addEventListener('change', function () { persistLayerStyle(ls); });
     const applyBtn = document.getElementById('apply-' + prefix);
@@ -830,11 +848,12 @@ const DATA_CHIKU = {
 
     const opacityInput = document.getElementById('opacity-' + prefix);
     const opacityVal = document.getElementById('opacity-' + prefix + '-val');
+    const throttledRestyleAll = rafThrottle(restyleAll);
     opacityInput.addEventListener('input', function (e) {
       const v = Number(e.target.value) / 100;
       ls.opacity = v;
       opacityVal.textContent = e.target.value + '%';
-      restyleAll();
+      throttledRestyleAll();
     });
     opacityInput.addEventListener('change', function () {
       persistLayerStyle(ls);
@@ -845,7 +864,7 @@ const DATA_CHIKU = {
       const w = Number(e.target.value);
       ls.weight = w;
       weightVal.textContent = w + 'px';
-      restyleAll();
+      throttledRestyleAll();
     });
     weightInput.addEventListener('change', function () {
       persistLayerStyle(ls);
