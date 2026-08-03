@@ -1431,12 +1431,14 @@ const DATA_CHIKU = {
         setAddProgress(90);
         setAddStatus('「' + ls.title + '」のマニフェストを更新中…', 'pending');
         await ghUpsertManifestEntry(ls);
+        setLayerSyncFailed(ls, false);
         setAddProgress(100);
         setAddStatus('「' + ls.title + '」を追加し、GitHubに保存しました', 'ok');
         setTimeout(hideAddProgress, 1200);
       }).catch(function (e) {
         hideAddProgress();
-        setAddStatus('GitHubへの保存に失敗しました: ' + e.message, 'error');
+        setLayerSyncFailed(ls, true);
+        setAddStatus('「' + ls.title + '」のマニフェスト登録に失敗しました。レイヤ一覧の「⚠ 再試行」ボタンから再試行してください（' + e.message + '）', 'error');
       });
     } else {
       hideAddProgress();
